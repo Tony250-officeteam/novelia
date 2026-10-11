@@ -27,8 +27,11 @@ class AuthPageTest {
             compose.runOnIdle { app.bookSources.select(BookSource.ORIGINAL) }
             compose.onNodeWithText("我的").performClick()
             compose.onNodeWithText("登录 / 注册").performClick()
-            compose.onNodeWithTag("login-source-original").assertIsSelected()
             compose.onNodeWithTag("login-username").assertIsDisplayed()
+            compose.onNodeWithTag("login-source-toggle").performScrollTo().performClick()
+            compose.onNodeWithTag("login-source-original").assertIsSelected()
+            compose.onNodeWithTag("login-source-toggle").performClick()
+            compose.onNodeWithTag("login-password").performScrollTo()
             compose.onNodeWithTag("login-password").performTextInput("synthetic-password")
             compose.runOnIdle { assertFalse(containsWebView(compose.activity.window.decorView)) }
             compose.activityRule.scenario.recreate()

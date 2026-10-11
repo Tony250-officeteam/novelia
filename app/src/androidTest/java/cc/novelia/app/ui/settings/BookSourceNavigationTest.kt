@@ -36,13 +36,15 @@ class BookSourceNavigationTest {
             compose.activityRule.scenario.recreate()
             compose.waitUntil(15_000) { compose.onAllNodesWithText("登录 Novelia").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("login-password").performTextInput("synthetic-password")
+            compose.onNodeWithTag("login-source-toggle").performScrollTo().performClick()
             compose.onNodeWithTag("login-source-original").performScrollTo().performClick()
             compose.waitUntil(10_000) { app.bookSources.capture().source == BookSource.ORIGINAL }
             assertEquals(BookSource.ORIGINAL, app.bookSources.capture().source)
             compose.onNodeWithText("登录 Novelia").assertIsDisplayed()
+            compose.onNodeWithTag("login-source-toggle").performScrollTo().performClick()
             compose.onNodeWithTag("login-source-original").assertIsSelected()
             compose.onNodeWithTag("login-password").assertTextEquals("密码", "")
-            compose.onNodeWithTag("login-source-xkvi").performClick()
+            compose.onNodeWithTag("login-source-xkvi").performScrollTo().performClick()
             compose.waitUntil(10_000) { app.bookSources.capture().source == BookSource.XKVI }
             compose.onNodeWithTag("login-password").assertTextEquals("密码", "")
         } finally { app.bookSources.select(previous) }

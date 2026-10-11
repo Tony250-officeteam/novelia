@@ -1,26 +1,35 @@
 package cc.novelia.app.ui.account
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowForward
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import cc.novelia.app.data.network.BookSource
 import cc.novelia.app.data.network.SourceSelection
 import cc.novelia.app.data.sync.CloudSyncWorker
 import cc.novelia.app.ui.components.base.AppButton
-import cc.novelia.app.ui.components.base.AppChipFlowRow
+import cc.novelia.app.ui.components.base.AppIconButton
 import cc.novelia.app.ui.components.base.AppTextButton
 import cc.novelia.app.ui.components.base.Screen
 import cc.novelia.app.ui.components.base.friendlyMessage
 import cc.novelia.app.ui.navigation.AppController
 import cc.novelia.app.ui.navigation.finishLoginNavigation
+import cc.novelia.app.ui.theme.appRoundedCornerShape
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -35,6 +44,7 @@ private enum class LoginMode { LOGIN, REGISTER, RESET_PASSWORD }
     var mode by remember { mutableStateOf(LoginMode.LOGIN) }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var passwordVisible by remember { mutableStateOf(false) }
     var email by remember { mutableStateOf("") }
     var otp by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -48,6 +58,9 @@ private enum class LoginMode { LOGIN, REGISTER, RESET_PASSWORD }
     val register = mode == LoginMode.REGISTER
     val resetting = mode == LoginMode.RESET_PASSWORD
     val enabled = !busy && !sending && !switching && !restoring
+    val canSubmit = enabled && (if(resetting) email.isNotBlank() else username.isNotBlank()) && password.isNotEmpty()
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
 
     LaunchedEffect(cooldown) { if(cooldown > 0) { delay(1000); cooldown-- } }
     LaunchedEffect(session, selected) {
@@ -62,7 +75,8 @@ private enum class LoginMode { LOGIN, REGISTER, RESET_PASSWORD }
         }
     }
     fun changeMode(next: LoginMode) {
-        mode = next; password = ""; otp = ""; error = null; notice = null
+        focusManager.clearFocus()
+        mode = next; password = ""; passwordVisible = false; otp = ""; error = null; notice = null
     }
     fun complete() {
         password = ""; otp = ""
@@ -70,47 +84,75 @@ private enum class LoginMode { LOGIN, REGISTER, RESET_PASSWORD }
         finishLoginNavigation(c, forum)
         c.message("已登录")
     }
+    fun submit() {
+        if(!canSubmit) return
+        if((register || resetting) && (password.length !in 8..100 ||
+                !android.util.Patterns.EMAIL_ADDRESS.matcher(email.trim()).matches() || !otp.trim().matches(Regex("[0-9]{6}")))) {
+            error = "请检查密码（8–100 字符）、邮箱和 6 位验证码"; return
+        }
+        if(register && username.trim().length !in 2..16) { error = "用户名应为 2–16 字符"; return }
+        keyboard?.hide()
+        focusManager.clearFocus()
+        busy = true; error = null; notice = null
+        scope.launch {
+            try {
+                if(resetting) {
+                    session.resetPassword(email, password, otp)
+                    username = email.trim(); changeMode(LoginMode.LOGIN)
+                    notice = "密码已重置，请使用新密码登录"
+                } else if(session.login(username, password, email.takeIf { register }, otp.takeIf { register })) complete()
+                else error = "认证成功，但未取得登录会话，请稍后重试"
+            } catch(cancelled: CancellationException) { throw cancelled }
+            catch(e: Exception) { error = e.friendlyMessage() }
+            finally { busy = false }
+        }
+    }
 
     Screen(if(register) "注册 Novelia 账号" else if(resetting) "找回密码" else if(forum) "登录 Novelia 论坛" else "登录 Novelia", c::back) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("书源线路", style = MaterialTheme.typography.titleMedium)
-            AppChipFlowRow {
-                BookSource.entries.forEach { source ->
-                    FilterChip(selected = selected.source == source,
-                        enabled = !busy && !sending && !switching && (source == BookSource.ORIGINAL || selected.hasAccessToken),
-                        modifier = Modifier.testTag("login-source-${source.id}"),
-                        label = { Text(source.title) }, onClick = {
-                            if(source != selected.source) {
-                                switching = true; error = null
-                                scope.launch {
-                                    try { withContext(Dispatchers.IO) { c.app.bookSources.select(source) } }
-                                    catch(cancelled: CancellationException) { throw cancelled }
-                                    catch(e: Exception) { error = e.friendlyMessage() }
-                                    finally { switching = false }
-                                }
-                            }
-                        })
+        LoginPageLayout(register, resetting, forum, Modifier.padding(padding).consumeWindowInsets(padding), source = {
+            LoginSourcePicker(selected, forum, enabled, switching) { source ->
+                if(source != selected.source) {
+                    keyboard?.hide()
+                    focusManager.clearFocus()
+                    switching = true; error = null
+                    scope.launch {
+                        try { withContext(Dispatchers.IO) { c.app.bookSources.select(source) } }
+                        catch(cancelled: CancellationException) { throw cancelled }
+                        catch(e: Exception) { error = e.friendlyMessage() }
+                        finally { switching = false }
+                    }
                 }
             }
-            Text(selected.source.origin.substringAfter("://"), style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("使用 Novelia 账号。切换书源会同时切换小说和论坛线路。" + (if(forum) "论坛登录状态单独保存。" else ""),
-                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if(!selected.hasAccessToken) Text("当前安装包未包含镜像配置", style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if(restoring) Text("正在恢复登录状态…", style = MaterialTheme.typography.bodyMedium)
-            if(!resetting) OutlinedTextField(username, { username = it }, Modifier.fillMaxWidth().testTag("login-username"), enabled = enabled,
-                label = { Text(if(register) "用户名" else "用户名或邮箱") }, singleLine = true)
-            OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth().testTag("login-password"), enabled = enabled,
-                label = { Text(if(resetting) "新密码" else "密码") }, singleLine = true, visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
+        }) {
+            if(restoring) LoginStatus("正在恢复登录状态…", loading = true)
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                val next = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Next) })
+                if(!resetting) LoginField(username, { username = it }, if(register) "用户名" else "用户名或邮箱",
+                    Icons.Outlined.PersonOutline, "login-username", enabled, first = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next), keyboardActions = next)
+                LoginField(password, { password = it }, if(resetting) "新密码" else "密码",
+                    Icons.Outlined.Lock, "login-password", enabled, first = resetting, last = !register && !resetting,
+                    visualTransformation = if(passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password,
+                        imeAction = if(register || resetting) ImeAction.Next else ImeAction.Done),
+                    keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Next) }, onDone = { submit() }),
+                    trailingIcon = {
+                        AppIconButton(onClick = { passwordVisible = !passwordVisible }, enabled = enabled) {
+                            Icon(if(passwordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                if(passwordVisible) "隐藏密码" else "显示密码", Modifier.size(22.dp))
+                        }
+                    })
+                if(register || resetting) {
+                    LoginField(email, { email = it }, "邮箱", Icons.Outlined.AlternateEmail, "login-email", enabled,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next), keyboardActions = next)
+                    LoginField(otp, { otp = it }, "邮箱验证码", Icons.Outlined.MarkEmailRead, "login-otp", enabled, last = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { submit() }))
+                }
+            }
             if(register || resetting) {
-                OutlinedTextField(email, { email = it }, Modifier.fillMaxWidth(), enabled = enabled,
-                    label = { Text("邮箱") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
-                OutlinedTextField(otp, { otp = it }, Modifier.fillMaxWidth().testTag("login-otp"), enabled = enabled,
-                    label = { Text("邮箱验证码") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                AppTextButton(enabled = enabled && cooldown == 0 && email.isNotBlank(), onClick = {
+                AppTextButton(enabled = enabled && cooldown == 0 && email.isNotBlank(),
+                    modifier = Modifier.align(Alignment.End).heightIn(min = 48.dp), onClick = {
                     if(!android.util.Patterns.EMAIL_ADDRESS.matcher(email.trim()).matches()) { error = "请填写有效的邮箱"; return@AppTextButton }
                     sending = true; error = null; notice = null
                     scope.launch {
@@ -121,33 +163,31 @@ private enum class LoginMode { LOGIN, REGISTER, RESET_PASSWORD }
                     }
                 }) { Text(if(sending) "正在发送…" else if(cooldown > 0) "${cooldown} 秒后重试" else "发送邮箱验证码") }
             }
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
-            notice?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium) }
-            AppButton(enabled = enabled && (if(resetting) email.isNotBlank() else username.isNotBlank()) && password.isNotEmpty(),
-                modifier = Modifier.fillMaxWidth(), onClick = {
-                    if((register || resetting) && (password.length !in 8..100 ||
-                            !android.util.Patterns.EMAIL_ADDRESS.matcher(email.trim()).matches() || !otp.trim().matches(Regex("[0-9]{6}")))) {
-                        error = "请检查密码（8–100 字符）、邮箱和 6 位验证码"; return@AppButton
-                    }
-                    if(register && username.trim().length !in 2..16) { error = "用户名应为 2–16 字符"; return@AppButton }
-                    busy = true; error = null; notice = null
-                    scope.launch {
-                        try {
-                            if(resetting) {
-                                session.resetPassword(email, password, otp)
-                                username = email.trim(); changeMode(LoginMode.LOGIN)
-                                notice = "密码已重置，请使用新密码登录"
-                            } else if(session.login(username, password, email.takeIf { register }, otp.takeIf { register })) complete()
-                            else error = "认证成功，但未取得登录会话，请稍后重试"
-                        } catch(cancelled: CancellationException) { throw cancelled }
-                        catch(e: Exception) { error = e.friendlyMessage() }
-                        finally { busy = false }
-                    }
-                }) { Text(if(busy) "正在提交…" else if(register) "注册并登录" else if(resetting) "重置密码" else "登录") }
-            AppTextButton(enabled = enabled, onClick = { changeMode(if(mode == LoginMode.LOGIN) LoginMode.REGISTER else LoginMode.LOGIN) }) {
-                Text(if(mode == LoginMode.LOGIN) "没有账号，注册" else "已有账号，去登录")
+            error?.let { LoginStatus(it, error = true) }
+            notice?.let { LoginStatus(it) }
+            AppButton(enabled = canSubmit, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag("login-submit"),
+                shape = appRoundedCornerShape(24.dp), contentPadding = PaddingValues(horizontal = 24.dp, vertical = 14.dp), onClick = ::submit) {
+                if(busy) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = LocalContentColor.current)
+                    Spacer(Modifier.width(10.dp))
+                }
+                Text(if(busy) "正在提交…" else if(register) "注册并登录" else if(resetting) "重置密码" else "登录",
+                    Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                Icon(Icons.AutoMirrored.Outlined.ArrowForward, null, Modifier.size(22.dp))
             }
-            if(mode == LoginMode.LOGIN) AppTextButton(enabled = enabled, onClick = { changeMode(LoginMode.RESET_PASSWORD) }) { Text("忘记密码？") }
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val stacked = maxWidth / LocalDensity.current.fontScale.coerceAtLeast(1f) < 300.dp
+                val modes: @Composable () -> Unit = {
+                    AppTextButton(enabled = enabled, modifier = Modifier.heightIn(min = 48.dp),
+                        onClick = { changeMode(if(mode == LoginMode.LOGIN) LoginMode.REGISTER else LoginMode.LOGIN) }) {
+                        Text(if(mode == LoginMode.LOGIN) "没有账号，注册" else "已有账号，去登录")
+                    }
+                    if(mode == LoginMode.LOGIN) AppTextButton(enabled = enabled, modifier = Modifier.heightIn(min = 48.dp),
+                        onClick = { changeMode(LoginMode.RESET_PASSWORD) }) { Text("忘记密码？") }
+                }
+                if(stacked) Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) { modes() }
+                else Row(Modifier.fillMaxWidth(), horizontalArrangement = if(mode == LoginMode.LOGIN) Arrangement.SpaceBetween else Arrangement.Center) { modes() }
+            }
         }
     }
 }
