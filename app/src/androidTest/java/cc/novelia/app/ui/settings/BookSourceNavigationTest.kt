@@ -28,19 +28,23 @@ class BookSourceNavigationTest {
             compose.waitForIdle()
             screenshot(app, "mirror-source-picker.png")
             compose.onNodeWithTag("book-source-xkvi").performClick()
-            compose.waitUntil(10_000) { compose.onAllNodesWithText("通过镜像登录").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(10_000) { compose.onAllNodesWithText("登录 Novelia").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithText("用户名或邮箱").assertIsDisplayed()
             compose.onNodeWithText("密码").assertIsDisplayed()
             screenshot(app, "mirror-login-screen.png")
             assertEquals(BookSource.XKVI, app.bookSources.capture().source)
             compose.activityRule.scenario.recreate()
-            compose.waitUntil(15_000) { compose.onAllNodesWithText("通过镜像登录").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithText("切换书源线路").performScrollTo().performClick()
-            compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("书源线路"))
-            compose.onNodeWithText("书源线路").performClick()
-            compose.onNodeWithTag("book-source-original").performClick()
+            compose.waitUntil(15_000) { compose.onAllNodesWithText("登录 Novelia").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("login-password").performTextInput("synthetic-password")
+            compose.onNodeWithTag("login-source-original").performScrollTo().performClick()
             compose.waitUntil(10_000) { app.bookSources.capture().source == BookSource.ORIGINAL }
             assertEquals(BookSource.ORIGINAL, app.bookSources.capture().source)
+            compose.onNodeWithText("登录 Novelia").assertIsDisplayed()
+            compose.onNodeWithTag("login-source-original").assertIsSelected()
+            compose.onNodeWithTag("login-password").assertTextEquals("密码", "")
+            compose.onNodeWithTag("login-source-xkvi").performClick()
+            compose.waitUntil(10_000) { app.bookSources.capture().source == BookSource.XKVI }
+            compose.onNodeWithTag("login-password").assertTextEquals("密码", "")
         } finally { app.bookSources.select(previous) }
     }
     private fun screenshot(app: NoveliaApplication, name: String) {

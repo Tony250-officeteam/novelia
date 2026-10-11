@@ -44,14 +44,15 @@ class ForumMirrorLoginTest {
                     }
                 }
             }
-            compose.waitUntil(10_000) { compose.onAllNodesWithText("通过镜像登录论坛").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(10_000) { compose.onAllNodesWithText("登录 Novelia 论坛").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithText("用户名或邮箱").assertIsDisplayed()
             compose.onNodeWithText("密码").assertIsDisplayed()
             compose.onNodeWithText("完成登录").assertDoesNotExist()
             restoration.emulateSavedInstanceStateRestore()
-            compose.waitUntil(10_000) { compose.onAllNodesWithText("通过镜像登录论坛").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(10_000) { compose.onAllNodesWithText("登录 Novelia 论坛").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(10_000) { compose.onAllNodesWithText("正在恢复登录状态…").fetchSemanticsNodes().isEmpty() }
             compose.onNodeWithText("没有账号，注册").performScrollTo().performClick()
-            compose.onNodeWithText("通过镜像注册").assertIsDisplayed()
+            compose.onNodeWithText("注册 Novelia 账号").assertIsDisplayed()
             compose.onNodeWithText("邮箱验证码").performScrollTo().assertIsDisplayed()
         } finally { app.bookSources.select(previous) }
     }

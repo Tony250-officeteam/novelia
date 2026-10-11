@@ -72,7 +72,7 @@ $env:ANDROID_SERIAL = '<专用测试设备序列号>'
 - 导航和双栏：`RootNavigationTest`、`AdaptiveLibraryTest`。
 - 正文和手势：`ReaderAdaptiveUiTest`、`ReaderToolbarOverlayTest`、`ReaderTapNavigationTest`。
 - 论坛与编辑：`ForumEditorUiTest`、`ForumCommentThreadTest`、`EditorDraftLifecycleTest`。
-- 会话：`MirrorSessionTest`、`ForumMirrorSessionTest`、`ForumSessionIsolationTest`、`ForumSharedAuthTest`；镜像论坛登录界面另见 `ui.account.ForumMirrorLoginTest`。
+- 会话：`NativeLoginSessionTest`、`MirrorSessionTest`、`ForumMirrorSessionTest`、`ForumSessionIsolationTest`、`ForumSharedAuthTest`；原生登录界面另见 `integration.AuthPageTest`、`ui.account.ForumMirrorLoginTest` 和 `ui.settings.BookSourceNavigationTest`。
 - Android 平台解析：`ForumCommunityRulesParserAndroidTest`。
 - 文件/恢复：`BookExportUiTest`、`LibraryBackupFlowTest`。
 - 静态交互：`EInkReaderFlowTest`、`ReducedMotionSheetTest`、`PanelSessionTest`。
@@ -88,7 +88,6 @@ $env:ANDROID_SERIAL = '<专用测试设备序列号>'
 | `integration.LiveReadOnlyTest` | `live=true` | 公开小说列表、详情、章节 |
 | `integration.ForumLiveReadOnlyTest` | `live=true` | 论坛公开读取 |
 | `integration.ForumLinksLiveTest` | `live=true` | 公开文章中的链接解析 |
-| `integration.AuthPageTest` | `live=true` | 认证表单，不填写真实凭据 |
 | `integration.DownloadLiveTest` | `live=true` | 生成、下载、解析已有译文文件 |
 | `ui.web.SiteWebNavigationTest` | `liveSite=true` | 部分站内网页用例 |
 | `integration.EchNativeTest` | `echLive=true` | Android 原生 ECH 联网与桥接 |

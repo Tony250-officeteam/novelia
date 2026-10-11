@@ -122,7 +122,7 @@ class ForumMirrorSessionTest {
         val main = Session(context, client, sources)
         val forum = Session(context, client, sources, AuthTarget.FORUM)
         assertNull(forum.token)
-        assertTrue(forum.loginMirror("forum-mirror", "test-password"))
+        assertTrue(forum.login("forum-mirror", "test-password"))
         val binding = forum.capture()
         assertEquals("forum-xkvi", binding.source)
         ForumApi(NoveliaApi(forum, ForumApi.BASE_URL, client)).favorite(5, true)
@@ -244,8 +244,8 @@ class ForumMirrorSessionTest {
             }
         }
         val forum = Session(context, client, sources, AuthTarget.FORUM)
-        forum.requestMirrorOtp("test@example.invalid")
-        assertTrue(forum.loginMirror("registered-user", "test-password", "test@example.invalid", "123456"))
+        forum.requestOtp("test@example.invalid")
+        assertTrue(forum.login("registered-user", "test-password", "test@example.invalid", "123456"))
         assertEquals(listOf("/api/v1/auth/otp/request", "/api/v1/auth/register", "/api/v1/auth/refresh"), paths)
         assertEquals("registered-user", forum.profile.value?.username)
     }

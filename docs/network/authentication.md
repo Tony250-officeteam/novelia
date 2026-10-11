@@ -8,20 +8,20 @@
 
 | 入口 | 方式 | 认证标识 |
 | --- | --- | --- |
-| 小说原站 | WebView 中的统一认证页 | `app=n`，Origin 为 `https://n.novelia.cc` |
-| 原站论坛 | WebView 中的统一认证页 | `app=f`，Origin 为 `https://forum.novelia.cc` |
-| XKVI 小说镜像 | 原生登录、注册和验证码表单 | 镜像同源认证 API，`app=n` |
+| 小说原站 | 统一原生表单 | `app=n`，Origin 为 `https://n.novelia.cc` |
+| 原站论坛 | 先恢复同线路 SSO，失败显示统一原生表单 | `app=f`，Origin 为 `https://forum.novelia.cc` |
+| XKVI 小说镜像 | 统一原生表单 | 镜像同源认证 API，`app=n` |
 | XKVI 论坛镜像 | 先恢复同线路 SSO，失败显示原生表单 | 镜像同源认证 API，`app=f` |
 
-原站与论坛的 WebView 包装页嵌入 `auth.novelia.cc`。网页发来 `login_success` 后，客户端检查消息来源，再携带认证 Cookie 请求刷新；**只有拿到有效访问令牌才完成登录**。网页消息本身不含令牌。
+所有入口共用 [LoginForm.kt](../../app/src/main/java/cc/novelia/app/ui/account/LoginForm.kt)，支持登录、注册、邮箱验证码和找回密码。顶部按钮可直接切换原站／镜像，无需先进入设置；切换同时作用于小说和论坛，清空当前表单并取消旧请求。未配置镜像的安装包禁用镜像按钮。
 
-自动回调不可用时，“完成登录”按钮走同一刷新过程。镜像表单成功后可直接接收 JWT，或用镜像认证 Cookie 刷新，具体字段见[书源线路](../development/book-source-mirrors.md)。
+登录不再创建 WebView。登录、注册、验证码、重置密码和刷新全部复用应用 HTTP 客户端：开启 ECH 时原站认证通过 ECH，失败不静默降级；镜像沿用 HTTPS 直连。服务端直接返回有效 JWT 时保存，否则携带所选线路的认证 Cookie 刷新；**只有拿到有效访问令牌才完成登录**。重置密码成功后回到登录表单，不自行登录。接口字段依据[上游公开登录 API](https://github.com/auto-novel/auth/blob/632ea746d409e0115eb02f48e0b9ddd08ce54071/apps/login/src/data/api.ts)，另见[书源线路](../development/book-source-mirrors.md)。
 
 ## 进入论坛自动登录
 
 同线路小说账号已登录、论坛尚未登录时，社区、论坛文章、发帖及处罚记录页面进入前台会尝试复用统一认证 Cookie，调用 `app=f` 的刷新接口获取独立论坛令牌，成功后直接显示登录状态。共享 Cookie 返回的账号必须与当前小说账号一致；请求途中退出小说、切换线路或退出论坛后，旧结果不能提交。
 
-自动认证失败时仍可匿名浏览；收藏、评论、发帖等需要登录的操作会进入论坛登录入口。该入口先尝试恢复统一认证，成功后返回并继续原操作，失败后按线路显示原站 WebView 认证页或镜像原生表单。主动退出论坛会在该线路持久保存暂停自动登录的标记，重启仍有效；用户主动选择论坛登录并成功取得令牌后解除标记。
+自动认证失败时仍可匿名浏览；收藏、评论、发帖等需要登录的操作会进入论坛登录入口。该入口先尝试恢复统一认证，成功后返回并继续原操作，失败后使用统一原生表单。恢复期间可以切换书源线路。主动退出论坛会在该线路持久保存暂停自动登录的标记，重启仍有效；用户主动选择论坛登录并成功取得令牌后解除标记。
 
 镜像小说登录可用同源认证 Cookie 换取镜像论坛的独立令牌；镜像 Cookie 不发送给原站论坛或原站认证服务。成功获取论坛令牌后，把用于刷新和轮换的镜像 Cookie 加密保存到论坛私有会话，使退出小说不影响已有论坛续期。切换书源线路会同时恢复该线路的小说和论坛会话，并使两者的旧请求绑定失效。
 
@@ -54,11 +54,11 @@
 
 取令牌、刷新和应用结果时都核对原绑定。普通 401 最多刷新一次，刷新锁合并并发续期；不能把原请求改绑到另一个账号或线路后重发。应用中的论坛会话与小说共用线路选择，令牌、刷新 Cookie 和主动退出标记分别保存。
 
-## WebView 与界面权限
+## 表单与界面权限
 
-登录 WebView 开启认证所需的 JavaScript、DOM storage 和第三方 Cookie，关闭文件/content 访问与混合内容。原生消息监听检查允许 origin、主框架和固定消息；不支持监听时使用手动完成入口。
+密码和验证码仅保留在当前原生表单的内存中，切换表单、书源或 Activity 重建时清除，不进入恢复状态、备份或日志。原站继续使用 CookieManager 保存认证 Cookie 以兼容已有 SSO；使用此存储不意味着网络请求经过 WebView。
 
-主框架导航限制与子资源加载规则不同，不应把前者描述为所有流量的域名白名单。普通站内浏览 WebView 也不是登录 WebView，见[界面与导航](../architecture/ui-and-navigation.md)。
+普通站内浏览仍使用 WebView，见[界面与导航](../architecture/ui-and-navigation.md)。
 
 JWT 字段用于展示用户名、角色和有效期，客户端解析不等于验签授权。`canPost`、`canEdit` 或论坛角色判断只帮助显示入口，最终以服务端响应为准。
 
@@ -72,10 +72,10 @@ JWT 字段用于展示用户名、角色和有效期，客户端解析不等于�
 
 | 现象 | 先查什么 |
 | --- | --- |
-| 网页显示成功，App 未登录 | 消息回调和手动刷新结果 |
+| 认证成功但未取得会话 | 认证响应、Cookie 和刷新结果 |
 | 反复 401 | 原绑定是否有效、刷新是否成功，而非无限重试 |
 | 403 | 服务端权限，不用旧缓存掩盖 |
 | “账号或书源已变化” | 请求是否跨越退出、重登或线路切换 |
 | 退出后仍显示本地书籍 | 这是设备资料保留，检查会话状态即可 |
 
-回归入口：JVM `SessionIsolationTest`、`ApiContractTest`，设备 `MirrorSessionTest`、`ForumMirrorSessionTest`、`ForumSessionIsolationTest`、`ForumSharedAuthTest`。真实认证页面测试默认关闭，命令见[测试指南](../quality/testing.md)。不要在日志或夹具里保存真实 Cookie、密码和令牌。
+回归入口：JVM `SessionIsolationTest`、`ApiContractTest`、`EchApiContractTest`，设备 `NativeLoginSessionTest`、`MirrorSessionTest`、`ForumMirrorSessionTest`、`ForumSessionIsolationTest`、`ForumSharedAuthTest`；原生表单与书源切换见 `AuthPageTest`、`ForumMirrorLoginTest` 和 `BookSourceNavigationTest`。这些测试不提交真实账号或发送邮件，命令见[测试指南](../quality/testing.md)。不要在日志或夹具里保存真实 Cookie、密码和令牌。

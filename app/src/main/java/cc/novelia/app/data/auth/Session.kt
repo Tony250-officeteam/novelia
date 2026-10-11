@@ -169,7 +169,7 @@ class Session(context: Context, private val client: OkHttpClient = OkHttpClient.
             refreshRequest(binding, allowAccountChange = true, sharedAuth = main to mainBinding)
         } }
     }
-    /** 原站网页或镜像原生表单完成认证后，从当前来源获取应用令牌。 */
+    /** 使用当前来源的认证 Cookie 获取应用令牌。 */
     suspend fun refresh(): Boolean {
         val binding = capture()
         val previousToken = tokenFor(binding)
@@ -178,11 +178,12 @@ class Session(context: Context, private val client: OkHttpClient = OkHttpClient.
             if(current != previousToken) current != null else refreshRequest(binding, allowAccountChange = true)
         } }
     }
-    suspend fun loginMirror(username: String, password: String, email: String? = null, otp: String? = null): Boolean {
+    /** 原站和镜像共用原生表单；所有请求复用应用传输（含原站 ECH）。 */
+    suspend fun login(username: String, password: String, email: String? = null, otp: String? = null): Boolean {
         require(username.isNotBlank() && password.isNotEmpty()) { "请填写用户名或邮箱和密码" }
         val binding = capture()
         return withContext(Dispatchers.IO) { refreshLock.withLock {
-            val value = mirrorAuth(binding, if(email == null) "login" else "register", buildJsonObject {
+            val value = authenticate(binding, if(email == null) "login" else "register", buildJsonObject {
                 put("app", target.appId); put("username", username.trim()); put("password", password)
                 if(email != null) { put("email", email.trim()); put("otp", otp.orEmpty().trim()) }
             })
@@ -195,31 +196,45 @@ class Session(context: Context, private val client: OkHttpClient = OkHttpClient.
             } else refreshRequest(binding, allowAccountChange = true)
         } }
     }
-    suspend fun requestMirrorOtp(email: String) = withContext(Dispatchers.IO) {
+    suspend fun requestOtp(email: String, resetPassword: Boolean = false) {
         require(email.isNotBlank()) { "请填写邮箱" }
-        mirrorAuth(capture(), "otp/request", buildJsonObject { put("email", email.trim()); put("type", "verify") })
-        Unit
+        val binding = capture()
+        withContext(Dispatchers.IO) {
+            authenticate(binding, "otp/request", buildJsonObject {
+                put("email", email.trim()); put("type", if(resetPassword) "reset_password" else "verify")
+            })
+        }
     }
-    private suspend fun mirrorAuth(binding: SessionBinding, path: String, payload: JsonObject): String {
+    suspend fun resetPassword(email: String, password: String, otp: String) {
+        require(email.isNotBlank() && password.isNotEmpty() && otp.isNotBlank()) { "请填写邮箱、新密码和验证码" }
+        val binding = capture()
+        withContext(Dispatchers.IO) {
+            authenticate(binding, "password/reset", buildJsonObject {
+                put("email", email.trim()); put("password", password); put("otp", otp.trim())
+            })
+        }
+    }
+    private suspend fun authenticate(binding: SessionBinding, path: String, payload: JsonObject): String {
         val request = current(binding) { selected ->
-            check(selected.source == BookSource.XKVI) { "书源已变化，请重新打开登录页" }
             val url = "${selected.source.authOrigin}/api/v1/auth/$path"
-            Request.Builder().url(url).tag(SourceSelection::class.java, selected).header("Origin", selected.source.origin)
+            Request.Builder().url(url)
+                .apply { if(followsBookSources) tag(SourceSelection::class.java, selected) }
+                .header("Origin", if(selected.source == BookSource.ORIGINAL) target.origin else selected.source.origin)
                 .apply { cookie(selected.source, url)?.let { header("Cookie", it) } }
                 .post(payload.toString().toRequestBody("application/json".toMediaType())).build()
         }
         val context = currentCoroutineContext()
         return client.newCall(request).awaitBody { response ->
             context.ensureActive()
-            current(binding) { selected ->
+            current(binding) {
                 if(!response.isSuccessful) throw ApiException(response.code, when(response.code) {
                     400, 422 -> "填写的信息不正确，请检查用户名、邮箱或验证码"
                     401 -> "登录失败，请检查账号和密码"
-                    403 -> "镜像拒绝访问，请稍后重试或切换原站"
+                    403 -> "认证服务拒绝访问，请稍后重试或切换书源"
                     409 -> "用户名或邮箱已被使用，请直接登录"
                     429 -> "操作过于频繁，请稍后重试"
                     502 -> "认证未完成，请检查填写的信息或稍后重试（502）"
-                    else -> "镜像认证服务暂不可用（${response.code}），请稍后重试"
+                    else -> "认证服务暂不可用（${response.code}），请稍后重试"
                 })
             }
             val value = response.body?.string()?.trim().orEmpty()

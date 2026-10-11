@@ -6,7 +6,7 @@
 
 | 文档 | 内容 |
 | --- | --- |
-| [账号与会话](authentication.md) | 三种登录、令牌保存、有限续期和本地退出 |
+| [账号与会话](authentication.md) | 统一登录、书源切换、令牌保存、有限续期和本地退出 |
 | [网络与原站同步](network-and-sync.md) | API 入口、缓存、章节请求和离线待办 |
 | [原站与镜像](../development/book-source-mirrors.md) | 线路配置、请求路由和镜像认证 |
 | [网络诊断与 ECH](network-diagnostics.md) | 直连/ECH 对照、传输入口、日志分析 |

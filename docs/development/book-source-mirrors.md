@@ -47,7 +47,8 @@ Debug、本地 Release 和正式发行均使用相同注入逻辑。入口口令
 | --- | --- |
 | `login` | `app: "n"`（小说）或 `"f"`（论坛）、`username`、`password` |
 | `register` | 上述字段加 `email`、`otp` |
-| `otp/request` | `email`、`type: "verify"` |
+| `otp/request` | `email`、`type: "verify"`（注册）或 `"reset_password"`（找回密码） |
+| `password/reset` | `email`、`password`、`otp`；成功后返回登录表单 |
 | `refresh?app=n` / `refresh?app=f` | 空请求体，携带该来源认证 Cookie；响应为 JWT 文本 |
 
 登录/注册成功后接收认证 Cookie；响应直接包含符合原站字段的 JWT 时立即保存，否则携带 Cookie 请求刷新获取 JWT。入口口令不会被当作账号令牌。镜像小说 JWT 与刷新 Cookie 在 `session-xkvi` 中加密保存，镜像论坛使用独立密钥和 `forum-session-xkvi`；原站沿用 `session` / `forum-session`。同线路小说已登录时，论坛可复用其 SSO Cookie 换取 `app=f` 令牌，核对账号一致后独立保存 Cookie；退出小说不会破坏已有论坛续期。密码和验证码只保留于当前表单内存，不进入恢复状态、备份和日志。服务器业务错误只显示固定提示，不回显原始响应内容。

@@ -82,7 +82,7 @@ Activity 接收 `intent.dataString` 或分享文本，只恢复尚未消费的�
 
 链接分派分两条入口：书源文本由 [BookLinks](../../app/src/main/java/cc/novelia/app/data/catalog/BookLinks.kt) 解析；Markdown 相对地址和站内路由由 [MarkdownLinks](../../app/src/main/java/cc/novelia/app/data/markdown/MarkdownLinks.kt) 处理。支持的书籍、章节、帖子和守则进入原生页面；需要保留网页语义的站内地址进入 `SiteWebScreen`，外站交给浏览器。
 
-站点 WebView 为 SPA 开启 JavaScript 和 DOM storage，关闭文件/content 访问及混合内容，没有原生 JavaScript bridge。返回键先检查 WebView 当前历史，包括 SPA 的历史变化。登录 WebView 的消息校验另见[认证](../network/authentication.md)。
+站点 WebView 为 SPA 开启 JavaScript 和 DOM storage，关闭文件/content 访问及混合内容，没有原生 JavaScript bridge。返回键先检查 WebView 当前历史，包括 SPA 的历史变化。登录使用统一原生表单，另见[认证](../network/authentication.md)。
 
 ## Markdown 和编辑器
 

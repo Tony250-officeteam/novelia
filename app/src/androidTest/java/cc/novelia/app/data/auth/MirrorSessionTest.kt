@@ -73,7 +73,7 @@ class MirrorSessionTest {
         sources.select(BookSource.XKVI)
         assertNull(session.profile.value)
         assertThrows(SessionChangedException::class.java) { session.tokenFor(originalBinding) }
-        assertTrue(session.loginMirror("mirror-user", "test-password"))
+        assertTrue(session.login("mirror-user", "test-password"))
         val mirrorBinding = session.capture()
         assertEquals("mirror-user", session.profile.value?.username)
         assertEquals("{}", NoveliaApi(session, transport = client).request("GET", "novel"))
@@ -114,8 +114,8 @@ class MirrorSessionTest {
             }
         }.build()
         val session = Session(context(), client, sources)
-        session.requestMirrorOtp("test@example.invalid")
-        assertTrue(session.loginMirror("test-user", "test-password", "test@example.invalid", "123456"))
+        session.requestOtp("test@example.invalid")
+        assertTrue(session.login("test-user", "test-password", "test@example.invalid", "123456"))
         assertEquals(listOf("/api/v1/auth/otp/request", "/api/v1/auth/register", "/api/v1/auth/refresh"), paths)
     }
 
@@ -128,7 +128,7 @@ class MirrorSessionTest {
             reply(chain.request(), body = jwt("test-user"))
         }.build()
         val session = Session(context(), client, sources)
-        assertTrue(session.loginMirror("test-user", "test-password"))
+        assertTrue(session.login("test-user", "test-password"))
         assertEquals("test-user", session.profile.value?.username)
         assertEquals(1, calls)
     }
@@ -141,7 +141,7 @@ class MirrorSessionTest {
             reply(chain.request(), cookie = "refresh=late-session; Path=/; Secure")
         }.build()
         val session = Session(context, client, sources)
-        assertTrue(runCatching { session.loginMirror("test-user", "test-password") }.exceptionOrNull() is SessionChangedException)
+        assertTrue(runCatching { session.login("test-user", "test-password") }.exceptionOrNull() is SessionChangedException)
         sources.select(BookSource.XKVI)
         assertNull(session.profile.value)
         assertTrue(context.getSharedPreferences("session-xkvi", 0).all.isEmpty())
