@@ -2,7 +2,10 @@ package cc.novelia.app.ui.toolbar
 
 import kotlin.math.roundToInt
 
-/** 像素坐标，输入已经排除系统栏、应用导航和阅读工具栏。位置按可拖动区域的比例保存。 */
+/** 系统安全边距用于固定圆点；页面导航和阅读控件的边距仅用于面板避让。 */
+internal data class EdgeToolbarInsets(val left: Int = 0, val top: Int = 0, val right: Int = 0, val bottom: Int = 0)
+
+/** 像素坐标。圆点使用稳定的窗口区域，面板使用当前页面的可用区域。 */
 internal data class EdgeToolbarBounds(val left: Int, val top: Int, val right: Int, val bottom: Int) {
     val width get() = (right - left).coerceAtLeast(0)
     val height get() = (bottom - top).coerceAtLeast(0)

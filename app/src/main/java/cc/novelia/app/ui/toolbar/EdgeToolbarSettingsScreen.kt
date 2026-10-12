@@ -46,7 +46,7 @@ internal val edgeShortcuts = listOf(
             item { ProfileSectionTitle("位置与外观") }
             item { ProfileChoiceRow("屏幕侧边", listOf("左侧", "右侧"), EdgeToolbarSettings.SIDES.indexOf(settings.side)) { index -> update { it.copy(side = EdgeToolbarSettings.SIDES[index]) } } }
             item { ToolbarSlider("垂直位置", settings.position, 0f..1f) { value -> update { it.copy(position = value) } } }
-            item { ProfileMenuRow("恢复默认高度", "回到可用区域 55% 的位置", Icons.Outlined.RestartAlt, { update { it.copy(position = .55f) } }) }
+            item { ProfileMenuRow("恢复默认高度", "回到窗口安全区域 55% 的位置", Icons.Outlined.RestartAlt, { update { it.copy(position = .55f) } }) }
             item { ProfileChoiceRow("闲置后缩回边缘", listOf("3 秒", "5 秒", "8 秒", "关闭"), EdgeToolbarSettings.IDLE_SECONDS.indexOf(settings.idleSeconds)) { index -> update { it.copy(idleSeconds = EdgeToolbarSettings.IDLE_SECONDS[index]) } } }
             item { ToolbarSlider("半隐藏时不透明度", settings.idleOpacity, 0.3f..0.8f) { value -> update { it.copy(idleOpacity = value) } } }
             item { ProfileSectionTitle("显示方式") }

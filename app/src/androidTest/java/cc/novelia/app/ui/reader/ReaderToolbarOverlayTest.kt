@@ -14,6 +14,7 @@ import cc.novelia.app.MainActivity
 import cc.novelia.app.NoveliaApplication
 import cc.novelia.app.data.model.BookCard
 import cc.novelia.app.data.model.BookRef
+import cc.novelia.app.data.model.EdgeToolbarSettings
 import cc.novelia.app.data.model.LocalChapter
 import cc.novelia.app.data.model.LocalDocument
 import cc.novelia.app.data.model.Position
@@ -41,6 +42,34 @@ class ReaderToolbarOverlayTest {
     @Test fun eInkPagesKeepToolbarHiddenAcrossChapters() = verifyChapterNavigation(ReaderSettings().withEInkMode(true))
 
     @Test fun eInkScrollingKeepsToolbarHiddenAcrossChapters() = verifyChapterNavigation(ReaderSettings().withEInkMode(true).withPaginationMode("scroll"))
+
+    @Test fun edgeDotKeepsWindowPositionAcrossReaderMenusStatusBarAndHistory() = withReader(ReaderSettings()) { app, _ ->
+        compose.runOnIdle { app.store.update { it.copy(edgeToolbar = EdgeToolbarSettings(position = .7f, idleSeconds = 0)) } }
+        fun dotBounds(): Rect {
+            compose.waitUntil(10_000) { compose.onAllNodesWithTag("edge-toolbar-dot").fetchSemanticsNodes().isNotEmpty() }
+            return compose.onNodeWithTag("edge-toolbar-dot").fetchSemanticsNode().boundsInRoot
+        }
+        val original = dotBounds()
+        repeat(2) {
+            compose.onNodeWithTag("reader-scroll").performTouchInput { click(center) }
+            compose.onNodeWithTag("edge-toolbar-dot").assertDoesNotExist()
+            compose.onNodeWithTag("reader-scroll").performTouchInput { click(center) }
+            assertEquals(original, dotBounds())
+        }
+        compose.runOnIdle { app.store.update { it.copy(reader = it.reader.copy(hideStatusBar = true)) } }
+        compose.waitUntil(10_000) {
+            androidx.core.view.ViewCompat.getRootWindowInsets(compose.activity.window.decorView)
+                ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.statusBars()) == false
+        }
+        assertEquals(original, dotBounds())
+        compose.onNodeWithTag("edge-toolbar-dot").performClick()
+        compose.onNodeWithText("阅读历史").performClick()
+        compose.onNodeWithTag("reader-scroll").assertDoesNotExist()
+        assertEquals(original, dotBounds())
+        compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        compose.onNodeWithTag("reader-scroll").assertExists()
+        assertEquals(original, dotBounds())
+    }
 
     @Test fun firstTapEnableShowsDismissibleGuideOnceWithoutMovingTheReadingPosition() = withReader(
         ReaderSettings(), tapTutorialSeen = false

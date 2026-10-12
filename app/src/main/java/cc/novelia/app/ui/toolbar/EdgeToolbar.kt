@@ -44,6 +44,7 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 /** 在根树观察轻量投影，不因正文进度保存而重组整个导航图。 */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun EdgeToolbarHost(
     c: AppController,
     route: String?,
@@ -76,9 +77,14 @@ import kotlin.math.roundToInt
     val left = WindowInsets.safeDrawing.getLeft(density, direction) + with(density) { navigationRailWidth.roundToPx() }
     val right = WindowInsets.safeDrawing.getRight(density, direction)
     val top = if(reading) max(safeTop, reader?.top ?: 0) else safeTop + with(density) { 64.dp.roundToPx() }
+    // 阅读状态栏显隐、底部导航与阅读菜单的高度都不能重新定位圆点。
+    val stableInsets = WindowInsets.systemBarsIgnoringVisibility.union(WindowInsets.displayCutout)
+    val anchorInsets = EdgeToolbarInsets(left = stableInsets.getLeft(density, direction),
+        top = stableInsets.getTop(density), right = stableInsets.getRight(density, direction))
     // 根容器已消费系统底部 inset；这里只排除应用自己的导航与阅读控件。
     val bottom = with(density) { navigationBarHeight.roundToPx() } + if(reading) reader?.bottom ?: 0 else 0
     EdgeToolbar(state.first, visible, state.second, entryId, left, right, top, bottom,
+        anchorInsets = anchorInsets,
         onPositionChange = { position -> c.store.update { it.copy(edgeToolbar = it.edgeToolbar.normalized().copy(position = position)) } },
         onNavigate = { destination ->
             if(route?.substringBefore('?') != destination) c.go(destination, replaceTop = true)
@@ -95,6 +101,7 @@ import kotlin.math.roundToInt
     rightInset: Int = 0,
     topInset: Int = 0,
     bottomInset: Int = 0,
+    anchorInsets: EdgeToolbarInsets = EdgeToolbarInsets(),
     onPositionChange: (Float) -> Unit,
     onNavigate: (String) -> Unit,
     onExpandedChanged: (Boolean) -> Unit = {},
@@ -105,7 +112,7 @@ import kotlin.math.roundToInt
     val reduced = appReducedMotion()
     var size by remember { mutableStateOf(IntSize.Zero) }
     var expanded by remember(pageKey) { mutableStateOf(false) }
-    var fraction by remember(pageKey) { mutableFloatStateOf(preferences.position) }
+    var fraction by remember { mutableFloatStateOf(preferences.position) }
     var dragging by remember { mutableStateOf(false) }
     var dragOrigin by remember { mutableFloatStateOf(fraction) }
     var idle by remember { mutableStateOf(false) }
@@ -117,20 +124,23 @@ import kotlin.math.roundToInt
     val gap = with(density) { 12.dp.roundToPx() }
     val bounds = EdgeToolbarBounds(leftInset, topInset + gap,
         (size.width - rightInset).coerceAtLeast(leftInset), (size.height - bottomInset - gap).coerceAtLeast(topInset + gap))
-    val shown = visible && bounds.width >= touch * 2 && bounds.height >= touch
+    val anchor = EdgeToolbarBounds(anchorInsets.left, anchorInsets.top + gap,
+        (size.width - anchorInsets.right).coerceAtLeast(anchorInsets.left),
+        (size.height - anchorInsets.bottom - gap).coerceAtLeast(anchorInsets.top + gap))
+    val shown = visible && anchor.width >= touch * 2 && anchor.height >= touch
     val open = shown && expanded
     val savePosition by rememberUpdatedState(onPositionChange)
     fun wake() { idle = false; interaction++ }
     fun close() { expanded = false; wake() }
     fun navigate(target: String) { close(); onNavigate(target) }
     LaunchedEffect(preferences.position) { if(!dragging) fraction = preferences.position }
-    LaunchedEffect(shown, pageKey, preferences.side) {
+    LaunchedEffect(shown) {
         if(!shown) { expanded = false; focused = false }
-        idle = false; interaction++
     }
-    LaunchedEffect(shown, open, dragging, pressed, focused, interaction, preferences.idleSeconds) {
-        idle = false
-        if(shown && !open && !dragging && !pressed && !focused && preferences.idleSeconds > 0) {
+    // 导航和临时隐藏不会唤醒圆点，也不会重新开始倒计时；只有工具栏交互才唤醒。
+    LaunchedEffect(open, dragging, pressed, focused, interaction, preferences.idleSeconds) {
+        if(open || dragging || pressed || focused || preferences.idleSeconds == 0) idle = false
+        else if(!idle) {
             delay(preferences.idleSeconds * 1_000L)
             idle = true
         }
@@ -185,7 +195,7 @@ import kotlin.math.roundToInt
         if(shown) {
             Box(Modifier.size(48.dp).clipToBounds().testTag("edge-toolbar-dot")
                 .onFocusChanged { focused = it.isFocused }
-                .pointerInput(pageKey, bounds, preferences.side) {
+                .pointerInput(pageKey, anchor, preferences.side) {
                     try {
                         detectVerticalDragGestures(
                             onDragStart = { dragOrigin = fraction; dragging = true; wake() },
@@ -193,7 +203,7 @@ import kotlin.math.roundToInt
                             onDragCancel = { fraction = dragOrigin; dragging = false; wake() },
                             onVerticalDrag = { change, amount ->
                                 change.consume()
-                                fraction = bounds.fractionAt(bounds.centerY(fraction, touch) + amount, touch)
+                                fraction = anchor.fractionAt(anchor.centerY(fraction, touch) + amount, touch)
                             },
                         )
                     } finally { if(dragging) { fraction = dragOrigin; dragging = false } }
@@ -224,14 +234,14 @@ import kotlin.math.roundToInt
         val scrim = if(open) measurables[0].measure(Constraints.fixed(width, height)) else null
         val panelWidth = minOf(248.dp.roundToPx(), (bounds.width - 68.dp.roundToPx()).coerceAtLeast(1))
         val panel = if(open) measurables[1].measure(Constraints(minWidth = panelWidth, maxWidth = panelWidth, maxHeight = bounds.height)) else null
-        val centerY = bounds.centerY(fraction, touch)
+        val centerY = anchor.centerY(fraction, touch)
         layout(width, height) {
             scrim?.place(0, 0)
             panel?.let {
                 val x = if(rightSide) bounds.right - 56.dp.roundToPx() - it.width else bounds.left + 56.dp.roundToPx()
                 it.place(x.coerceIn(bounds.left, (bounds.right - it.width).coerceAtLeast(bounds.left)), bounds.panelTop(centerY, it.height))
             }
-            dot?.place(if(rightSide) bounds.right - touch else bounds.left, (centerY - touch / 2f).roundToInt())
+            dot?.place(if(rightSide) anchor.right - touch else anchor.left, (centerY - touch / 2f).roundToInt())
         }
     }
 }

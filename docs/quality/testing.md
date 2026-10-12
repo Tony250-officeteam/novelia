@@ -71,7 +71,7 @@ $env:ANDROID_SERIAL = '<专用测试设备序列号>'
 设备测试按 [ui](../../app/src/androidTest/java/cc/novelia/app/ui)、[data](../../app/src/androidTest/java/cc/novelia/app/data)、[integration](../../app/src/androidTest/java/cc/novelia/app/integration) 和 [performance](../../app/src/androidTest/java/cc/novelia/app/performance) 组织。重点入口包括：
 
 - 导航和双栏：`RootNavigationTest`、`AdaptiveLibraryTest`。
-- 边缘工具栏：`EdgeToolbarTest`，覆盖闲置后单击展开、上下拖动保存及浮层隐藏后不自动重开。
+- 边缘工具栏：`EdgeToolbarTest`，覆盖闲置后单击展开、拖动保存、跨页面及临时隐藏时保留位置和闲置计时；`ReaderToolbarOverlayTest` 额外验证阅读菜单、系统状态栏和历史页切换不挪动圆点。
 - 正文和手势：`ReaderAdaptiveUiTest`、`ReaderToolbarOverlayTest`、`ReaderTapNavigationTest`。
 - 论坛与编辑：`ForumEditorUiTest`、`ForumCommentThreadTest`、`EditorDraftLifecycleTest`。
 - 会话：`NativeLoginSessionTest`、`MirrorSessionTest`、`ForumMirrorSessionTest`、`ForumSessionIsolationTest`、`ForumSharedAuthTest`；原生登录界面另见 `integration.AuthPageTest`、`ui.account.ForumMirrorLoginTest` 和 `ui.settings.BookSourceNavigationTest`。
