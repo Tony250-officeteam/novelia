@@ -35,6 +35,7 @@ internal fun RootDestinationLayout(
     onNavigate: (String) -> Unit,
     hideBottomNavigation: Boolean = false,
     onNavigationBarHeightChanged: (Dp) -> Unit = {},
+    onNavigationRailWidthChanged: (Dp) -> Unit = {},
     content: @Composable () -> Unit,
 ) {
     val tabs = listOf(
@@ -48,6 +49,7 @@ internal fun RootDestinationLayout(
         val compactRail = maxHeight < 480.dp
         val density = LocalDensity.current
         if(wide || hideBottomNavigation) SideEffect { onNavigationBarHeightChanged(0.dp) }
+        if(!wide) SideEffect { onNavigationRailWidthChanged(0.dp) }
         Scaffold(
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             bottomBar = {
@@ -67,7 +69,9 @@ internal fun RootDestinationLayout(
             },
         ) { padding ->
             Row(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
-                if(wide) NavigationRail {
+                if(wide) NavigationRail(modifier = Modifier.onSizeChanged { size ->
+                    onNavigationRailWidthChanged(with(density) { size.width.toDp() })
+                }) {
                     Spacer(Modifier.height(if(compactRail) 12.dp else 40.dp))
                     tabs.forEach { (target, label, icon) ->
                         val selected = route.startsWith(target)

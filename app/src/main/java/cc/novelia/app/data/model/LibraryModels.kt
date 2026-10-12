@@ -66,6 +66,7 @@ fun legacyFolderId(name: String): String = if(name == DEFAULT_FOLDER) DEFAULT_FO
     val amoledBlack: Boolean = false,
     // 直角彩蛋是本机偏好，普通设置备份保留，WebDAV 不同步。
     val squareCorners: Boolean = false,
+    val edgeToolbar: EdgeToolbarSettings = EdgeToolbarSettings(),
     val autoSaveCloudFavoritesLocally: Boolean = true,
     // 文件清理仅为本机偏好，默认关闭，普通设置备份会保留这两个选项。
     val deleteDownloadAfterImport: Boolean = false, val deleteLocalCopyOnShelfRemoval: Boolean = false,

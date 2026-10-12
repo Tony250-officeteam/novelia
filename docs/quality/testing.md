@@ -45,6 +45,7 @@ Release 报告对应替换变体名。警告、失败和跳过分别记录。
 | 原站队列 | `data.sync.CloudMutationQueueTest`、`CloudSyncPolicyTest`、`BoundCloudSyncTest`（均在 data.sync） |
 | WebDAV | `data.webdav.WebDavMergeTest`、`WebDavProjectionTest`、`WebDavExchangeTest`、`WebDavClientTest`（均在 data.webdav） |
 | 持久化和恢复 | `data.storage.StatePersistenceTest`、`data.storage.LibraryStateCodecTest`、`data.backup.LibraryBackupTest` |
+| 边缘工具栏偏好、同步与定位 | `ui.toolbar.EdgeToolbarSettingsTest`、`ui.toolbar.EdgeToolbarGeometryTest` |
 | 导入、下载、导出 | `files.FileImportRegressionTest`、`files.importing.DocumentImportBatchTest`、`files.downloads.DownloadFilesTest`、`files.exporting.PendingExportFilesTest` |
 | 阅读投影、分页、定位 | `reader.ReaderProjectionTest`、`reader.ReaderExactSearchTest`、`reader.StaticPaginationTest`、`ui.reader.ReaderChapterLoadTest` |
 | 位置、历史、更新 | `data.library.ReadingProgressUpdatesTest`、`data.storage.LocalReadingProgressTest`、`data.updates.BookUpdateStateTest` |
@@ -70,6 +71,7 @@ $env:ANDROID_SERIAL = '<专用测试设备序列号>'
 设备测试按 [ui](../../app/src/androidTest/java/cc/novelia/app/ui)、[data](../../app/src/androidTest/java/cc/novelia/app/data)、[integration](../../app/src/androidTest/java/cc/novelia/app/integration) 和 [performance](../../app/src/androidTest/java/cc/novelia/app/performance) 组织。重点入口包括：
 
 - 导航和双栏：`RootNavigationTest`、`AdaptiveLibraryTest`。
+- 边缘工具栏：`EdgeToolbarTest`，覆盖闲置后单击展开、上下拖动保存及浮层隐藏后不自动重开。
 - 正文和手势：`ReaderAdaptiveUiTest`、`ReaderToolbarOverlayTest`、`ReaderTapNavigationTest`。
 - 论坛与编辑：`ForumEditorUiTest`、`ForumCommentThreadTest`、`EditorDraftLifecycleTest`。
 - 会话：`NativeLoginSessionTest`、`MirrorSessionTest`、`ForumMirrorSessionTest`、`ForumSessionIsolationTest`、`ForumSharedAuthTest`；原生登录界面另见 `integration.AuthPageTest`、`ui.account.ForumMirrorLoginTest` 和 `ui.settings.BookSourceNavigationTest`。

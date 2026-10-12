@@ -451,6 +451,9 @@ import kotlinx.serialization.encodeToString
         val showTapTutorial = settings.tapPageTurn && !local.readerTapTutorialSeen && panelsClosed && !leaving &&
             !chapterLoad.loading && chapterLoad.error == null && initialAnchorRestored && !restoringAnchor && seekTarget == null &&
             (!settings.staticPagination || eInk.ready)
+        cc.novelia.app.ui.toolbar.ReportEdgeToolbarReaderState(readerEntry?.id, menu,
+            blocked = !panelsClosed || showTapTutorial || leaving || !initialAnchorRestored,
+            top = if(menu) topOverlayHeight else 0, bottom = bottomOverlayHeight)
         val volumeKeysActive = panelsClosed && !showTapTutorial
         LaunchedEffect(volumeKeysActive) { if(volumeKeysActive) runCatching { focus.requestFocus() } }
         fun openChapter(id: String, startAtEnd: Boolean = false, match: ReadingTextMatch? = null, inline: Boolean = false,
@@ -943,14 +946,16 @@ import kotlinx.serialization.encodeToString
         } }
         }
     }
-    if(preferences) ReaderPreferencesSheet(onDismissRequest = { preferences = false }) { expanded, onExpandedChange ->
-        ReaderPreferences(settings, local.bookSettings.containsKey(ref.key), { perBook -> c.store.update { it.copy(bookSettings = if(perBook) it.bookSettings + (ref.key to settings) else it.bookSettings - ref.key) } },
-            state = preferenceState, modifier = Modifier.fillMaxSize(), livePreview = true, defaultSettings = local.reader, headerActions = {
-                AppIconButton(onClick = { onExpandedChange(!expanded) }) {
-                    ReaderSheetExpandIcon(expanded)
-                }
-                AppTextButton(onClick = { preferences = false }) { Text("关闭面板") }
-            }) { value -> c.store.update { if(it.bookSettings.containsKey(ref.key)) it.copy(bookSettings = it.bookSettings + (ref.key to value)) else it.copy(reader = value) } }
+    if(preferences) {
+        ReaderPreferencesSheet(onDismissRequest = { preferences = false }) { expanded, onExpandedChange ->
+            ReaderPreferences(settings, local.bookSettings.containsKey(ref.key), { perBook -> c.store.update { it.copy(bookSettings = if(perBook) it.bookSettings + (ref.key to settings) else it.bookSettings - ref.key) } },
+                state = preferenceState, modifier = Modifier.fillMaxSize(), livePreview = true, defaultSettings = local.reader, headerActions = {
+                    AppIconButton(onClick = { onExpandedChange(!expanded) }) {
+                        ReaderSheetExpandIcon(expanded)
+                    }
+                    AppTextButton(onClick = { preferences = false }) { Text("关闭面板") }
+                }) { value -> c.store.update { if(it.bookSettings.containsKey(ref.key)) it.copy(bookSettings = it.bookSettings + (ref.key to value)) else it.copy(reader = value) } }
+        }
     }
 }
 

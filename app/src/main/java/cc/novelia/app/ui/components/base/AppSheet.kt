@@ -20,6 +20,7 @@ internal val LocalInAppSheet = compositionLocalOf { false }
  * 两种容器切换会重建内部组合，需要保留的表单状态应提升到调用方，滚动位置按会话管理。
  */
 @Composable internal fun AppSheet(onDismissRequest: () -> Unit, sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), content: @Composable ColumnScope.() -> Unit) {
+    AppOverlayPresence()
     val session = remember { Any() }
     if (!appReducedMotion()) ModalBottomSheet(
         onDismissRequest = onDismissRequest,

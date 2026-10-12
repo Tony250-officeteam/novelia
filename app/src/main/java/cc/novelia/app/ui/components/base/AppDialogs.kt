@@ -44,6 +44,7 @@ import cc.novelia.app.ui.theme.appReducedMotion
     properties: DialogProperties = DialogProperties(),
     content: @Composable () -> Unit,
 ) {
+    AppOverlayPresence()
     Dialog(onDismissRequest, properties) {
         ApplyDialogMotion()
         content()
@@ -60,6 +61,7 @@ import cc.novelia.app.ui.theme.appReducedMotion
     text: (@Composable () -> Unit)? = null,
     properties: DialogProperties = DialogProperties(),
 ) {
+    AppOverlayPresence()
     AlertDialog(onDismissRequest, confirmButton = {
         ApplyDialogMotion()
         confirmButton()
@@ -75,6 +77,7 @@ import cc.novelia.app.ui.theme.appReducedMotion
     scrollState: ScrollState = rememberPanelScrollState(expanded),
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    AppOverlayPresence(expanded)
     if(!appReducedMotion()) {
         DropdownMenu(expanded, onDismissRequest, modifier, scrollState = scrollState, content = content)
     } else if(expanded) {

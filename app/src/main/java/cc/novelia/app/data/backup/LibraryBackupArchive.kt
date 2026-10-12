@@ -128,6 +128,7 @@ internal object LibraryBackupArchive {
         require(state.pending.isEmpty() && state.downloads.isEmpty() && state.syncStatus.isEmpty() && state.syncReplica.documents.isEmpty()) { "备份不应包含账号队列、同步版本或运行中的任务" }
         require(state.books.map { it.book.ref.key }.distinct().size == state.books.size && state.notes.map { it.id }.distinct().size == state.notes.size) { "备份含重复的书籍或笔记标识" }
         require(state.theme in setOf("system", "light", "dark")) { "备份主题设置无效" }
+        require(state.edgeToolbar.valid) { "备份边缘工具栏设置无效" }
         require(state.keywordLimit == null || state.keywordLimit > 0) { "备份标签数量上限无效" }
         (listOf(state.reader) + state.bookSettings.values).forEach { settings ->
             require(settings.theme in ReaderSettings.THEMES && settings.customColors.valid) { "备份阅读配色无效" }

@@ -16,6 +16,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -66,6 +67,9 @@ import cc.novelia.app.ui.theme.AppMotion
 import cc.novelia.app.ui.theme.NoveliaTheme
 import cc.novelia.app.ui.theme.appReducedMotion
 import cc.novelia.app.ui.tools.ToolsScreen
+import cc.novelia.app.ui.toolbar.*
+import cc.novelia.app.ui.components.base.AppOverlayRegistry
+import cc.novelia.app.ui.components.base.LocalAppOverlayRegistry
 import cc.novelia.app.ui.web.SiteWebScreen
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -114,7 +118,10 @@ class MainActivity : ComponentActivity() {
                 key(source.revision) {
                 val bookSync = rememberBookSyncPresentation(controller)
                 val bookList = rememberBookListPresentation(controller)
+                val overlays = remember { AppOverlayRegistry() }
+                val edgeReader = remember { EdgeToolbarReaderState() }
                 CompositionLocalProvider(LocalBookSyncPresentation provides bookSync, LocalBookListPresentation provides bookList,
+                    LocalAppOverlayRegistry provides overlays, LocalEdgeToolbarReaderState provides edgeReader,
                     cc.novelia.app.ui.theme.LocalScreenPageButtons provides appearance.screenButtons) {
                 controller.pendingFavorite?.let { book ->
                     FavoriteSheet(controller, book, initialCloud = controller.pendingFavoriteCloud) { controller.pendingFavorite = null }
@@ -148,6 +155,11 @@ class MainActivity : ComponentActivity() {
                 val roots = listOf("shelf", "discover?query={query}", "community", "profile")
                 fun switchTab(target: String) { nav.switchRootTab(target) }
                 var navigationBarHeight by remember { mutableStateOf(0.dp) }
+                var navigationRailWidth by remember { mutableStateOf(0.dp) }
+                var edgeToolbarExpanded by remember { mutableStateOf(false) }
+                fun reportNavigationRailWidth(root: String): (Dp) -> Unit = { width ->
+                    if(route?.startsWith(root) == true) navigationRailWidth = width
+                }
                 fun reportNavigationBarHeight(root: String): (Dp) -> Unit = { height ->
                     if(route?.startsWith(root) == true) navigationBarHeight = height
                 }
@@ -163,7 +175,8 @@ class MainActivity : ComponentActivity() {
                         val travel = with(LocalDensity.current) { 24.dp.roundToPx() }
                         fun staticReader(entry: androidx.navigation.NavBackStackEntry): Boolean = entry.destination.route?.startsWith("reader/") == true &&
                             "${entry.arguments?.getString("provider")}/${entry.arguments?.getString("id")}" in appearance.eInkBooks
-                        NavHost(nav, startDestination = "shelf", modifier = Modifier.fillMaxSize(), enterTransition = {
+                        NavHost(nav, startDestination = "shelf", modifier = Modifier.fillMaxSize()
+                            .then(if(edgeToolbarExpanded) Modifier.clearAndSetSemantics { } else Modifier), enterTransition = {
                             if(duration == 0 || staticReader(initialState) || staticReader(targetState)) return@NavHost EnterTransition.None
                             val from = roots.indexOf(initialState.destination.route)
                             val to = roots.indexOf(targetState.destination.route)
@@ -185,12 +198,14 @@ class MainActivity : ComponentActivity() {
                             composable("shelf") { entry ->
                                 var compactShelfDetail by rememberSaveable { mutableStateOf(false) }
                                 RootDestinationLayout("shelf", ::switchTab, hideBottomNavigation = compactShelfDetail,
+                                    onNavigationRailWidthChanged = reportNavigationRailWidth("shelf"),
                                     onNavigationBarHeightChanged = reportNavigationBarHeight("shelf")) {
                                     AdaptiveLibraryScreen(controller, entry.savedStateHandle) { compactShelfDetail = it }
                                 }
                             }
                             composable("discover?query={query}") { entry ->
                                 RootDestinationLayout("discover", ::switchTab,
+                                    onNavigationRailWidthChanged = reportNavigationRailWidth("discover"),
                                     onNavigationBarHeightChanged = reportNavigationBarHeight("discover")) {
                                     DiscoverScreen(controller, entry.arguments?.getString("query").orEmpty())
                                 }
@@ -199,10 +214,12 @@ class MainActivity : ComponentActivity() {
                             composable("wenku-new") { WenkuEditorScreen(controller) }
                             composable("community") {
                                 RootDestinationLayout("community", ::switchTab,
+                                    onNavigationRailWidthChanged = reportNavigationRailWidth("community"),
                                     onNavigationBarHeightChanged = reportNavigationBarHeight("community")) { CommunityScreen(controller) }
                             }
                             composable("profile") {
                                 RootDestinationLayout("profile", ::switchTab,
+                                    onNavigationRailWidthChanged = reportNavigationRailWidth("profile"),
                                     onNavigationBarHeightChanged = reportNavigationBarHeight("profile")) { ProfileScreen(controller) }
                             }
                             composable("book/{provider}/{id}") { BookScreen(controller, BookRef(it.arguments!!.getString("provider")!!, it.arguments!!.getString("id")!!)) }
@@ -214,6 +231,8 @@ class MainActivity : ComponentActivity() {
                             composable("forum-strikes") { ForumStrikesScreen(controller) }
                             composable("forum-rules") { ForumRulesScreen(controller) }
                             composable("settings?section={section}") { entry -> SettingsScreen(controller, entry.arguments?.getString("section")) }
+                            composable("edge-toolbar") { EdgeToolbarSettingsScreen(controller) }
+                            composable("edge-toolbar-edit") { EdgeToolbarEditorScreen(controller) }
                             composable("backup") { LibraryBackupScreen(controller) }
                             composable("keywords") { KeywordLibraryScreen(controller) }
                             composable("sync") { NetworkSyncScreen(controller) }
@@ -237,6 +256,13 @@ class MainActivity : ComponentActivity() {
                             composable("about") { AboutScreen(controller) }
                             composable("licenses") { OpenSourceLicensesScreen(controller) }
                             composable("web?url={url}") { SiteWebScreen(controller, it.arguments?.getString("url").orEmpty()) }
+                        }
+                        val readerEInk = route?.startsWith("reader/") == true && readingKey in appearance.eInkBooks
+                        AppInteractionMode(appearance.eInk || readerEInk, appearance.reducedMotion || readerEInk) {
+                            EdgeToolbarHost(controller, route, entry?.id,
+                                if(route in roots) navigationBarHeight else 0.dp,
+                                if(route in roots) navigationRailWidth else 0.dp,
+                                onExpandedChanged = { edgeToolbarExpanded = it })
                         }
                     }
                 }

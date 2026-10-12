@@ -15,6 +15,7 @@
 | `login`、`forum-login` | 小说服务登录、独立论坛登录 |
 | `forum-rules`、`forum-strikes` | 社区守则、处罚记录 |
 | `settings?section={section}`、`backup`、`sync` | 设置分类（section 可省略）、资料备份、网络与同步；`section=NETWORK` 与 `sync` 共用页面 |
+| `edge-toolbar`、`edge-toolbar-edit` | 边缘工具栏偏好、快捷入口编辑 |
 | `webdav`、`webdav-server` | WebDAV 同步、服务器配置 |
 | `updates`、`downloads`、`tools` | 更新中心、下载、文件工具 |
 | `notes`、`blocked`、`history` | 笔记、屏蔽、阅读历史 |
@@ -35,6 +36,14 @@ c.openMarkdownLink(url, baseUrl)
 通过已有入口编码动态参数，不把外部 URL 或文件名直接拼进路由。`go(replaceTop = true)` 实际设置的是 `launchSingleTop`，并不会弹出任意栈顶页面。
 
 根标签走 [RootNavigation.kt](../../app/src/main/java/cc/novelia/app/ui/navigation/RootNavigation.kt)：保存切走页面的状态，切回书架时显示书架列表而不恢复旧详情子栈。普通书籍、帖子跳转仍保留自己的返回历史。
+
+## 边缘工具栏覆盖层
+
+[EdgeToolbar.kt](../../app/src/main/java/cc/novelia/app/ui/toolbar/EdgeToolbar.kt) 挂在 `NavHost` 同级，观察工具栏偏好和活动下载数量的轻量投影。圆点与面板不改变正文视口；面板一次测量后按圆点中心定位并夹在可用区域内，内容超高时滚动。根导航报告实际底栏高度和侧栏宽度，阅读器按导航项 ID 报告菜单、阻挡浮层及上下工具栏高度，避免退出中的旧章节影响当前页面。
+
+共用 `AppDialog`、`AppAlertDialog`、`AppSheet` 和 `AppDropdownMenu` 通过 `AppOverlayRegistry` 登记显示状态，支持嵌套。工具栏只在允许的页面、前台且窗口有焦点、键盘和其他浮层关闭时显示；隐藏或导航后关闭展开面板。面板打开时拦截外部点击和系统返回，并隐藏底层页面的无障碍节点。
+
+拖动只更新临时位置，松手后通过 `LocalStore.update` 保存 0–1 相对高度，取消拖动恢复原位置。入口 ID 使用固定白名单；编辑页独立保存草稿，完成后一次提交。偏好模型兼容缺省字段，本机加载修正异常值，设置和整库导入严格校验；WebDAV 投影不包含工具栏偏好。
 
 ## 状态和异步加载
 

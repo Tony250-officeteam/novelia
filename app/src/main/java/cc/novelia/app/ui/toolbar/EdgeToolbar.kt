@@ -1,0 +1,237 @@
+package cc.novelia.app.ui.toolbar
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.*
+import androidx.compose.ui.unit.*
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import cc.novelia.app.data.model.EdgeToolbarSettings
+import cc.novelia.app.ui.components.base.*
+import cc.novelia.app.ui.navigation.AppController
+import cc.novelia.app.ui.theme.*
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlin.math.max
+import kotlin.math.roundToInt
+
+/** 在根树观察轻量投影，不因正文进度保存而重组整个导航图。 */
+@Composable internal fun EdgeToolbarHost(
+    c: AppController,
+    route: String?,
+    entryId: String?,
+    navigationBarHeight: Dp,
+    navigationRailWidth: Dp,
+    onExpandedChanged: (Boolean) -> Unit,
+) {
+    val projection = remember(c.store) { c.store.state.map { state ->
+        state.edgeToolbar.normalized() to state.downloads.count { it.status in setOf("等待下载", "下载中") }
+    }.distinctUntilChanged() }
+    val initial = remember(c.store) { c.store.state.value.let {
+        it.edgeToolbar.normalized() to it.downloads.count { download -> download.status in setOf("等待下载", "下载中") }
+    } }
+    val state by projection.collectAsStateWithLifecycle(initialValue = initial)
+    val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
+    val density = LocalDensity.current
+    val direction = LocalLayoutDirection.current
+    val reader = LocalEdgeToolbarReaderState.current?.entries?.get(entryId)
+    val reading = route?.startsWith("reader/") == true
+    val readerVisible = !reading || (reader != null && !reader.blocked && when(state.first.readerVisibility) {
+        "hidden" -> false
+        "always" -> true
+        else -> reader.menu
+    })
+    val visible = state.first.enabled && edgeToolbarRouteAllowed(route) && readerVisible &&
+        LocalAppOverlayRegistry.current?.count.let { it == null || it == 0 } &&
+        WindowInsets.ime.getBottom(density) == 0 && lifecycle == Lifecycle.State.RESUMED && LocalWindowInfo.current.isWindowFocused
+    val safeTop = WindowInsets.safeDrawing.getTop(density)
+    val left = WindowInsets.safeDrawing.getLeft(density, direction) + with(density) { navigationRailWidth.roundToPx() }
+    val right = WindowInsets.safeDrawing.getRight(density, direction)
+    val top = if(reading) max(safeTop, reader?.top ?: 0) else safeTop + with(density) { 64.dp.roundToPx() }
+    // 根容器已消费系统底部 inset；这里只排除应用自己的导航与阅读控件。
+    val bottom = with(density) { navigationBarHeight.roundToPx() } + if(reading) reader?.bottom ?: 0 else 0
+    EdgeToolbar(state.first, visible, state.second, entryId, left, right, top, bottom,
+        onPositionChange = { position -> c.store.update { it.copy(edgeToolbar = it.edgeToolbar.normalized().copy(position = position)) } },
+        onNavigate = { destination ->
+            if(route?.substringBefore('?') != destination) c.go(destination, replaceTop = true)
+        }, onExpandedChanged = onExpandedChanged)
+}
+
+/** 布局与手势独立于业务页面，面板和圆点始终是覆盖层，不改变正文视口。 */
+@Composable internal fun EdgeToolbar(
+    settings: EdgeToolbarSettings,
+    visible: Boolean,
+    downloadCount: Int = 0,
+    pageKey: Any? = null,
+    leftInset: Int = 0,
+    rightInset: Int = 0,
+    topInset: Int = 0,
+    bottomInset: Int = 0,
+    onPositionChange: (Float) -> Unit,
+    onNavigate: (String) -> Unit,
+    onExpandedChanged: (Boolean) -> Unit = {},
+) {
+    val preferences = settings.normalized()
+    val density = LocalDensity.current
+    val eInk = LocalEInkMode.current
+    val reduced = appReducedMotion()
+    var size by remember { mutableStateOf(IntSize.Zero) }
+    var expanded by remember(pageKey) { mutableStateOf(false) }
+    var fraction by remember(pageKey) { mutableFloatStateOf(preferences.position) }
+    var dragging by remember { mutableStateOf(false) }
+    var dragOrigin by remember { mutableFloatStateOf(fraction) }
+    var idle by remember { mutableStateOf(false) }
+    var interaction by remember { mutableIntStateOf(0) }
+    var focused by remember { mutableStateOf(false) }
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val touch = with(density) { 48.dp.roundToPx() }
+    val gap = with(density) { 12.dp.roundToPx() }
+    val bounds = EdgeToolbarBounds(leftInset, topInset + gap,
+        (size.width - rightInset).coerceAtLeast(leftInset), (size.height - bottomInset - gap).coerceAtLeast(topInset + gap))
+    val shown = visible && bounds.width >= touch * 2 && bounds.height >= touch
+    val open = shown && expanded
+    val savePosition by rememberUpdatedState(onPositionChange)
+    fun wake() { idle = false; interaction++ }
+    fun close() { expanded = false; wake() }
+    fun navigate(target: String) { close(); onNavigate(target) }
+    LaunchedEffect(preferences.position) { if(!dragging) fraction = preferences.position }
+    LaunchedEffect(shown, pageKey, preferences.side) {
+        if(!shown) { expanded = false; focused = false }
+        idle = false; interaction++
+    }
+    LaunchedEffect(shown, open, dragging, pressed, focused, interaction, preferences.idleSeconds) {
+        idle = false
+        if(shown && !open && !dragging && !pressed && !focused && preferences.idleSeconds > 0) {
+            delay(preferences.idleSeconds * 1_000L)
+            idle = true
+        }
+    }
+    SideEffect { onExpandedChanged(open) }
+    DisposableEffect(Unit) { onDispose { onExpandedChanged(false) } }
+    BackHandler(open) { close() }
+    val retreat by animateFloatAsState(if(idle && !open && !dragging) 1f else 0f,
+        tween(if(reduced) 0 else AppMotion.Standard), label = "edge dot retreat")
+    val dotAlpha = if(eInk) 1f else 1f - retreat * (1f - preferences.idleOpacity)
+    val rightSide = preferences.side == "right"
+    val shift = with(density) { 24.dp.toPx() } * retreat * if(rightSide) 1 else -1
+    val circleBackground = if(eInk) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.primary
+    val circleForeground = if(eInk) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onPrimary
+    val panelShape = appRoundedCornerShape(20.dp)
+    val navigateUpdated by rememberUpdatedState<(String) -> Unit>({ navigate(it) })
+    Layout(modifier = Modifier.fillMaxSize().clipToBounds().onSizeChanged { size = it }
+        .testTag("edge-toolbar-layer"), content = {
+        if(open) {
+            Box(Modifier.fillMaxSize().background(if(eInk) Color.Transparent else MaterialTheme.colorScheme.scrim.copy(alpha = .10f))
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { close() }
+                .clearAndSetSemantics { }.testTag("edge-toolbar-scrim"))
+            Surface(shape = panelShape, color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                shadowElevation = if(eInk) 0.dp else 6.dp,
+                modifier = Modifier.testTag("edge-toolbar-panel").semantics { paneTitle = "快捷入口"; isTraversalGroup = true }) {
+                Column(Modifier.appVerticalScroll(rememberScrollState()).padding(8.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("快捷入口", Modifier.weight(1f).padding(start = 8.dp), style = MaterialTheme.typography.titleSmall)
+                        AppIconButton(onClick = { navigate("edge-toolbar-edit") }) { Icon(Icons.Outlined.Edit, "编辑快捷入口") }
+                        AppIconButton(onClick = { close() }) { Icon(Icons.Outlined.Close, "收起快捷入口") }
+                    }
+                    preferences.entries.forEach { id ->
+                        val entry = edgeShortcuts.first { it.id == id }
+                        Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable { navigate(entry.id) }.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Icon(entry.icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                            Text(entry.title, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                            if(id == "downloads" && preferences.downloadBadge && downloadCount > 0) {
+                                Text(if(downloadCount > 99) "99+" else downloadCount.toString(),
+                                    Modifier.semantics { contentDescription = "$downloadCount 个进行中的下载任务" },
+                                    color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                    }
+                    HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                    AppTextButton(onClick = { navigate("edge-toolbar") }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                        Icon(Icons.Outlined.Tune, null, Modifier.size(20.dp)); Spacer(Modifier.width(12.dp)); Text("工具栏设置")
+                    }
+                }
+            }
+        }
+        if(shown) {
+            Box(Modifier.size(48.dp).clipToBounds().testTag("edge-toolbar-dot")
+                .onFocusChanged { focused = it.isFocused }
+                .pointerInput(pageKey, bounds, preferences.side) {
+                    try {
+                        detectVerticalDragGestures(
+                            onDragStart = { dragOrigin = fraction; dragging = true; wake() },
+                            onDragEnd = { dragging = false; savePosition(fraction); wake() },
+                            onDragCancel = { fraction = dragOrigin; dragging = false; wake() },
+                            onVerticalDrag = { change, amount ->
+                                change.consume()
+                                fraction = bounds.fractionAt(bounds.centerY(fraction, touch) + amount, touch)
+                            },
+                        )
+                    } finally { if(dragging) { fraction = dragOrigin; dragging = false } }
+                }
+                .clickable(interactionSource = interactionSource, indication = null, role = Role.Button,
+                    onClickLabel = if(open) "收起快捷入口" else "打开快捷入口") { wake(); expanded = !expanded }
+                .semantics {
+                    contentDescription = "快捷工具栏"
+                    stateDescription = if(open) "已展开" else if(idle) "半隐藏，可上下拖动" else "可上下拖动"
+                    customActions = listOf(
+                        CustomAccessibilityAction("向上移动") { wake(); fraction = (fraction - .1f).coerceAtLeast(0f); onPositionChange(fraction); true },
+                        CustomAccessibilityAction("向下移动") { wake(); fraction = (fraction + .1f).coerceAtMost(1f); onPositionChange(fraction); true },
+                        CustomAccessibilityAction("工具栏设置") { navigateUpdated("edge-toolbar"); true },
+                    )
+                }, contentAlignment = Alignment.Center) {
+                // 圆点是固定形状的拖动把手，直角模式也保留圆形；只移动视觉层，触控区留在屏幕内。
+                Surface(shape = CircleShape, color = circleBackground, contentColor = circleForeground,
+                    shadowElevation = if(eInk) 0.dp else 2.dp,
+                    modifier = Modifier.size(32.dp).graphicsLayer { translationX = shift; alpha = dotAlpha }) {
+                    Box(contentAlignment = Alignment.Center) { Icon(Icons.Outlined.Widgets, null, Modifier.size(18.dp)) }
+                }
+            }
+        }
+    }) { measurables, constraints ->
+        val width = constraints.maxWidth
+        val height = constraints.maxHeight
+        val dot = if(shown) measurables.last().measure(Constraints.fixed(touch, touch)) else null
+        val scrim = if(open) measurables[0].measure(Constraints.fixed(width, height)) else null
+        val panelWidth = minOf(248.dp.roundToPx(), (bounds.width - 68.dp.roundToPx()).coerceAtLeast(1))
+        val panel = if(open) measurables[1].measure(Constraints(minWidth = panelWidth, maxWidth = panelWidth, maxHeight = bounds.height)) else null
+        val centerY = bounds.centerY(fraction, touch)
+        layout(width, height) {
+            scrim?.place(0, 0)
+            panel?.let {
+                val x = if(rightSide) bounds.right - 56.dp.roundToPx() - it.width else bounds.left + 56.dp.roundToPx()
+                it.place(x.coerceIn(bounds.left, (bounds.right - it.width).coerceAtLeast(bounds.left)), bounds.panelTop(centerY, it.height))
+            }
+            dot?.place(if(rightSide) bounds.right - touch else bounds.left, (centerY - touch / 2f).roundToInt())
+        }
+    }
+}
