@@ -55,10 +55,19 @@ private val DarkColors = darkColorScheme(
     surfaceContainerLowest = Color(0xFF0B100D), surfaceContainerLow = Color(0xFF191E1A), surfaceContainer = Color(0xFF1D221E), surfaceContainerHigh = Color(0xFF272C28), surfaceContainerHighest = Color(0xFF323732)
 )
 
+// 大面积底色保持纯黑，较高的容器仍保留灰阶层次；黑色 tint 避免抬升时染色。
+private val AmoledColors = DarkColors.copy(
+    background = Color.Black, surface = Color.Black, surfaceTint = Color.Black,
+    surfaceDim = Color.Black, surfaceBright = Color(0xFF242424),
+    surfaceContainerLowest = Color.Black, surfaceContainerLow = Color.Black, surfaceContainer = Color.Black,
+    surfaceContainerHigh = Color(0xFF121212), surfaceContainerHighest = Color(0xFF1C1C1C),
+    surfaceVariant = Color(0xFF242424)
+)
+
 /** 正文阅读配色独立于偏好设置和其他弹层使用的应用主题。 */
 internal data class ReaderColors(val background: Color, val foreground: Color, val toolbar: Color)
 
-// 跟随应用只决定深浅模式，与手动选择共用配色。
+// 跟随应用时使用对应深浅配色，并在 A 屏黑开启时跟随纯黑背景。
 private val ReaderLightColors = ReaderColors(Color(0xFFE8F2E5), Color(0xFF263C2B), Color(0xFFCDDEC8))
 private val ReaderDarkColors = ReaderColors(DarkColors.surface, DarkColors.onSurface,
     lerp(DarkColors.surface, Color.Black, .55f))
@@ -73,7 +82,11 @@ internal fun readerColors(theme: String, appColors: ColorScheme): ReaderColors =
     "light" -> ReaderLightColors
     "dark" -> ReaderDarkColors
     "monochrome" -> ReaderColors(Color.White, Color.Black, Color(0xFFE0E0E0))
-    else -> if(appColors.surface.luminance() > .5f) ReaderLightColors else ReaderDarkColors
+    else -> when {
+        appColors.surface.luminance() > .5f -> ReaderLightColors
+        appColors.surface == Color.Black -> ReaderDarkColors.copy(background = Color.Black, toolbar = Color.Black)
+        else -> ReaderDarkColors
+    }
 }
 
 @Composable internal fun ReaderPageTheme(monochrome: Boolean, content: @Composable () -> Unit) {
@@ -83,13 +96,18 @@ internal fun readerColors(theme: String, appColors: ColorScheme): ReaderColors =
         content = content)
 }
 
-@Composable fun NoveliaTheme(theme: String, squareCorners: Boolean = false, content: @Composable () -> Unit) {
+@Composable fun NoveliaTheme(theme: String, squareCorners: Boolean = false, amoledBlack: Boolean = false, content: @Composable () -> Unit) {
     val dark = theme == "dark" || (theme == "system" && isSystemInDarkTheme())
+    val colors = when {
+        !dark -> LightColors
+        amoledBlack -> AmoledColors
+        else -> DarkColors
+    }
     val view = LocalView.current
     val activity = LocalContext.current.activityOrNull()
     SideEffect { activity?.let { WindowCompat.getInsetsController(it.window, view).apply { isAppearanceLightStatusBars = !dark; isAppearanceLightNavigationBars = !dark } } }
     CompositionLocalProvider(LocalSquareCorners provides squareCorners) {
-    MaterialTheme(colorScheme = if(dark) DarkColors else LightColors, shapes = if(squareCorners) SquareShapes else DefaultShapes, typography = Typography(
+    MaterialTheme(colorScheme = colors, shapes = if(squareCorners) SquareShapes else DefaultShapes, typography = Typography(
         headlineLarge = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 32.sp, lineHeight = 40.sp),
         titleLarge = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 22.sp, lineHeight = 30.sp),
         bodyLarge = TextStyle(fontSize = 16.sp, lineHeight = 26.sp), bodyMedium = TextStyle(fontSize = 14.sp, lineHeight = 22.sp)
