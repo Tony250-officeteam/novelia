@@ -90,7 +90,7 @@ private enum class SettingsSection(val title: String, val summary: String) {
         item { ProfileSectionTitle("外观与操作") }
         item { LauncherIconPreference(c.app.launcherIcons) }
         item { ProfileChoiceRow("应用主题", listOf("跟随系统", "浅色", "深色"), listOf("system", "light", "dark").indexOf(state.theme)) { index -> c.store.update { it.copy(theme = listOf("system", "light", "dark")[index]) } } }
-        item { ProfileToggle("A 屏黑", "深色主题下使用纯黑背景，适合 OLED 屏幕", state.amoledBlack) { value -> c.store.update { it.copy(amoledBlack = value) } } }
+        item { ProfileToggle("纯黑显示模式", "深色主题下使用纯黑背景，适合 OLED 屏幕", state.amoledBlack) { value -> c.store.update { it.copy(amoledBlack = value) } } }
         item { ProfileToggle("减少动态效果", "", state.reducedMotion) { value -> c.store.update { it.copy(reducedMotion = value) } } }
         item { ProfileToggle("fuck 圆角", "让整个应用变成直角", state.squareCorners) { value -> c.store.update { it.copy(squareCorners = value) } } }
         item { ProfileToggle("剪贴板链接提示", "返回应用时识别原站链接，点击提示后打开", state.clipboardLinkHints) { value -> c.store.update { it.copy(clipboardLinkHints = value) } } }
