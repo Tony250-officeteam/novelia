@@ -51,6 +51,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import cc.novelia.app.startup.StartupLoader
 import cc.novelia.app.startup.StartupStep
+import cc.novelia.app.startup.StartupAppearance
+import cc.novelia.app.startup.StartupAppearanceStore
 
 /**
  * 应用级服务的装配入口，书库、会话、API 和图片加载器在各页面之间复用。
@@ -91,9 +93,10 @@ class NoveliaApplication : Application(), ImageLoaderFactory {
         NoveliaApi(null, ForumCommunityRulesRepository.SOURCE_BASE, forumTransport)
     ) }
     internal val startup = StartupLoader()
+    internal val startupAppearance by lazy { StartupAppearanceStore(this) }
     val initialization by lazy { applicationScope.async {
         startup.load(listOf(
-            StartupStep.LIBRARY to { store; Unit },
+            StartupStep.LIBRARY to { startupAppearance.update(StartupAppearance(store.state.value.theme, store.state.value.amoledBlack)) },
             StartupStep.CONNECTION to { webDavConfig; bookSources; session; forumSession; Unit },
             StartupStep.KEYWORDS to { keywords.observe(store.state.value.books.flatMap { it.book.tags }); Unit },
             StartupStep.INTERFACE to { api; forumApi; novelCommentApi; imageLoader.diskCache; Unit }
@@ -103,8 +106,14 @@ class NoveliaApplication : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        startupAppearance
         launcherIcons
         initialization
+        applicationScope.launch {
+            initialization.await()
+            store.state.map { StartupAppearance(it.theme, it.amoledBlack) }.distinctUntilChanged()
+                .collect { startupAppearance.update(it) }
+        }
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
                 appUpdateCheck?.cancel()

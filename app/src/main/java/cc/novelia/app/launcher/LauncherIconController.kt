@@ -19,7 +19,8 @@ internal data class LauncherIcon(
     val drawable: Int,
     val component: String,
     val hidden: Boolean = false,
-    val splashTheme: Int = 0
+    val splashTheme: Int = 0,
+    val splashThemes: Map<String, Int> = emptyMap()
 )
 
 internal data class LauncherIconState(

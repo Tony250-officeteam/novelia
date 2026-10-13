@@ -91,19 +91,21 @@ private fun LibraryState.appearance() = AppAppearance(theme, amoledBlack, square
 class MainActivity : ComponentActivity() {
     private val incoming = MutableStateFlow<String?>(null)
     override fun onCreate(savedInstanceState: Bundle?) {
+        val app = application as NoveliaApplication
+        setTheme(app.startupAppearance.state.value.windowTheme)
         super.onCreate(savedInstanceState)
-        observeLauncherSplashScreen((application as NoveliaApplication).launcherIcons)
+        observeLauncherSplashScreen(app.launcherIcons, app.startupAppearance.state)
         enableEdgeToEdge()
         // 导航栈自行恢复，只重放尚未消费的外部意图。
         if (savedInstanceState == null) receive(intent)
         else incoming.value = savedInstanceState.getString("novelia.pendingLink")
         setContent {
-            val app = application as NoveliaApplication
             val startup by app.startup.progress.collectAsStateWithLifecycle()
             val initialized = startup.ready
             ReportDrawnWhen { initialized }
             if (!initialized) {
-                NoveliaTheme("system") { StartupScreen(startup, app.startup::retry) }
+                val appearance by app.startupAppearance.state.collectAsStateWithLifecycle()
+                NoveliaTheme(appearance.theme, amoledBlack = appearance.amoledBlack) { StartupScreen(startup, app.startup::retry) }
                 return@setContent
             }
             // 将完整书库投影成外观状态，阅读进度等频繁更新不会使整个导航容器随之刷新。

@@ -169,6 +169,9 @@ data class BundledLauncherIcon(val id: String, val title: String, val drawable: 
 }
 
 object LauncherIconCatalog {
+    val splashVariants = mapOf("" to "Theme.Novelia", "Light" to "Theme.Novelia.Light",
+        "Dark" to "Theme.Novelia.Dark", "Amoled" to "Theme.Novelia.Amoled", "SystemAmoled" to "Theme.Novelia.SystemAmoled")
+
     fun read(catalog: File, iconResources: File): List<BundledLauncherIcon> {
         val entries = JsonSlurper().parse(catalog, "UTF-8") as? List<*>
             ?: error("launcher-icons/icons.json must contain an array.")
@@ -214,10 +217,14 @@ abstract class LauncherSplashResourcesTask : DefaultTask() {
             appendLine("<?xml version=\"1.0\" encoding=\"utf-8\"?>")
             appendLine("<resources>")
             icons.forEach { icon ->
-                appendLine("    <style name=\"${icon.splashTheme}\" parent=\"Theme.Novelia\">")
-                appendLine("        <item name=\"android:windowSplashScreenAnimatedIcon\">@drawable/${icon.drawable}</item>")
-                appendLine("        <item name=\"android:windowSplashScreenBackground\">@color/app_light_background</item>")
-                appendLine("    </style>")
+                LauncherIconCatalog.splashVariants.forEach { (variant, parent) ->
+                    val name = icon.splashTheme + if(variant.isEmpty()) "" else ".$variant"
+                    appendLine("    <style name=\"$name\" parent=\"$parent\">")
+                    appendLine("        <item name=\"android:windowSplashScreenAnimatedIcon\">@drawable/${icon.drawable}</item>")
+                    appendLine("        <item name=\"android:windowSplashScreenBackground\">?android:colorBackground</item>")
+                    appendLine("        <item name=\"android:windowLightNavigationBar\">?android:windowLightStatusBar</item>")
+                    appendLine("    </style>")
+                }
             }
             appendLine("</resources>")
         }, Charsets.UTF_8)
@@ -273,7 +280,11 @@ abstract class LauncherIconManifestTask : DefaultTask() {
             alias.child("meta-data", mapOf("name" to "novelia.launcher.id", "value" to "icon:${icon.id}"))
             alias.child("meta-data", mapOf("name" to "novelia.launcher.title", "value" to "title:${icon.title}"))
             alias.child("meta-data", mapOf("name" to "novelia.launcher.hidden", "value" to icon.hidden.toString()))
-            alias.child("meta-data", mapOf("name" to "novelia.launcher.splashTheme", "resource" to "@style/${icon.splashTheme}"))
+            // 显式资源引用也保护各配色变体，避免 Release 资源收缩删除下次启动使用的主题。
+            LauncherIconCatalog.splashVariants.keys.forEach { variant ->
+                val suffix = if(variant.isEmpty()) "" else ".$variant"
+                alias.child("meta-data", mapOf("name" to "novelia.launcher.splashTheme$suffix", "resource" to "@style/${icon.splashTheme}$suffix"))
+            }
         }
         val output = outputManifest.get().asFile.apply { parentFile.mkdirs() }
         TransformerFactory.newInstance().apply { setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true) }

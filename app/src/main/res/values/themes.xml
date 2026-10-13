@@ -1,11 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="app_light_background">#F1F4EC</color>
+    <color name="app_dark_background">#101512</color>
+    <color name="app_amoled_background">#000000</color>
+    <color name="app_startup_background">@color/app_light_background</color>
+    <color name="app_amoled_startup_background">@color/app_light_background</color>
+    <bool name="app_light_system_bars">true</bool>
     <style name="Theme.Novelia" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightStatusBar">@bool/app_light_system_bars</item>
         <item name="android:windowActionModeOverlay">true</item>
         <item name="android:colorAccent">#3E6B3B</item>
+        <item name="android:colorBackground">@color/app_startup_background</item>
+        <item name="android:windowBackground">@color/app_startup_background</item>
+    </style>
+    <style name="Theme.Novelia.Light" parent="Theme.Novelia">
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:colorBackground">@color/app_light_background</item>
         <item name="android:windowBackground">@color/app_light_background</item>
+    </style>
+    <style name="Theme.Novelia.Dark" parent="Theme.Novelia">
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:colorBackground">@color/app_dark_background</item>
+        <item name="android:windowBackground">@color/app_dark_background</item>
+    </style>
+    <style name="Theme.Novelia.Amoled" parent="Theme.Novelia.Dark">
+        <item name="android:colorBackground">@color/app_amoled_background</item>
+        <item name="android:windowBackground">@color/app_amoled_background</item>
+    </style>
+    <style name="Theme.Novelia.SystemAmoled" parent="Theme.Novelia">
+        <item name="android:colorBackground">@color/app_amoled_startup_background</item>
+        <item name="android:windowBackground">@color/app_amoled_startup_background</item>
     </style>
 </resources>

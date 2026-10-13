@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="app_startup_background">@color/app_dark_background</color>
+    <color name="app_amoled_startup_background">@color/app_amoled_background</color>
+    <bool name="app_light_system_bars">false</bool>
+</resources>

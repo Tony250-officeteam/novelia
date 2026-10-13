@@ -5,6 +5,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
@@ -55,14 +56,20 @@ private val DarkColors = darkColorScheme(
     surfaceContainerLowest = Color(0xFF0B100D), surfaceContainerLow = Color(0xFF191E1A), surfaceContainer = Color(0xFF1D221E), surfaceContainerHigh = Color(0xFF272C28), surfaceContainerHighest = Color(0xFF323732)
 )
 
-// 大面积底色保持纯黑，较高的容器仍保留灰阶层次；黑色 tint 避免抬升时染色。
+// 只让页面底色熄黑；卡片、菜单和弹层逐级抬亮，避免黑底吞掉操作区域的边界。
 private val AmoledColors = DarkColors.copy(
+    primary = Color(0xFF91C9AC), primaryContainer = Color(0xFF19372A), onPrimaryContainer = Color(0xFFBFE6CF),
+    secondaryContainer = Color(0xFF202E26), onSecondaryContainer = Color(0xFFC4D4C9),
     background = Color.Black, surface = Color.Black, surfaceTint = Color.Black,
-    surfaceDim = Color.Black, surfaceBright = Color(0xFF242424),
-    surfaceContainerLowest = Color.Black, surfaceContainerLow = Color.Black, surfaceContainer = Color.Black,
-    surfaceContainerHigh = Color(0xFF121212), surfaceContainerHighest = Color(0xFF1C1C1C),
-    surfaceVariant = Color(0xFF242424)
+    onBackground = Color(0xFFD4DBD5), onSurface = Color(0xFFD4DBD5), onSurfaceVariant = Color(0xFFA7B0A9),
+    surfaceDim = Color.Black, surfaceBright = Color(0xFF2C2C2C),
+    surfaceContainerLowest = Color.Black, surfaceContainerLow = Color(0xFF101010), surfaceContainer = Color(0xFF161616),
+    surfaceContainerHigh = Color(0xFF202020), surfaceContainerHighest = Color(0xFF2A2A2A),
+    surfaceVariant = Color(0xFF272727), outline = Color(0xFF737D75), outlineVariant = Color(0xFF2B322D)
 )
+
+/** 表达实际生效的纯黑主题，浅色模式下即使偏好已开启也保持 false。 */
+internal val LocalAmoledBlack = staticCompositionLocalOf { false }
 
 /** 正文阅读配色独立于偏好设置和其他弹层使用的应用主题。 */
 internal data class ReaderColors(val background: Color, val foreground: Color, val toolbar: Color)
@@ -84,7 +91,7 @@ internal fun readerColors(theme: String, appColors: ColorScheme): ReaderColors =
     "monochrome" -> ReaderColors(Color.White, Color.Black, Color(0xFFE0E0E0))
     else -> when {
         appColors.surface.luminance() > .5f -> ReaderLightColors
-        appColors.surface == Color.Black -> ReaderDarkColors.copy(background = Color.Black, toolbar = Color.Black)
+        appColors.surface == Color.Black -> ReaderDarkColors.copy(background = Color.Black, foreground = appColors.onSurface, toolbar = Color.Black)
         else -> ReaderDarkColors
     }
 }
@@ -106,7 +113,7 @@ internal fun readerColors(theme: String, appColors: ColorScheme): ReaderColors =
     val view = LocalView.current
     val activity = LocalContext.current.activityOrNull()
     SideEffect { activity?.let { WindowCompat.getInsetsController(it.window, view).apply { isAppearanceLightStatusBars = !dark; isAppearanceLightNavigationBars = !dark } } }
-    CompositionLocalProvider(LocalSquareCorners provides squareCorners) {
+    CompositionLocalProvider(LocalSquareCorners provides squareCorners, LocalAmoledBlack provides (dark && amoledBlack)) {
     MaterialTheme(colorScheme = colors, shapes = if(squareCorners) SquareShapes else DefaultShapes, typography = Typography(
         headlineLarge = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 32.sp, lineHeight = 40.sp),
         titleLarge = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 22.sp, lineHeight = 30.sp),

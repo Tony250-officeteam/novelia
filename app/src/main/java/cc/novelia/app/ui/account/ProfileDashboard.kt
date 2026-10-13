@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.Constraints
 import cc.novelia.app.data.model.Profile
 import cc.novelia.app.ui.components.base.AppLazyColumn
 import cc.novelia.app.ui.theme.LocalEInkMode
+import cc.novelia.app.ui.theme.LocalAmoledBlack
 
 /** 同一组真实入口在宽屏并列显示；空间不足或字号放大时恢复纵向阅读顺序。 */
 @Composable internal fun ProfileDashboard(
@@ -94,12 +95,15 @@ import cc.novelia.app.ui.theme.LocalEInkMode
 
 @Composable private fun ProfileReadingCards(onNavigate: (String) -> Unit) {
     val colors = MaterialTheme.colorScheme
+    val amoled = LocalAmoledBlack.current
     val fontScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
     BoxWithConstraints {
         val stacked = maxWidth / fontScale < 300.dp
         val history: @Composable (Modifier) -> Unit = { modifier ->
             ProfileFeatureCard("阅读历史", "最近阅读记录", Icons.Outlined.History, "history", onNavigate,
-                colors.primary, colors.onPrimary, appRoundedCornerShape(topStart = 28.dp, topEnd = 48.dp, bottomEnd = 28.dp, bottomStart = 28.dp), modifier)
+                if(amoled) colors.primaryContainer else colors.primary,
+                if(amoled) colors.onPrimaryContainer else colors.onPrimary,
+                appRoundedCornerShape(topStart = 28.dp, topEnd = 48.dp, bottomEnd = 28.dp, bottomStart = 28.dp), modifier)
         }
         val downloads: @Composable (Modifier) -> Unit = { modifier ->
             ProfileFeatureCard("下载管理", "下载与离线内容", Icons.Outlined.Download, "downloads", onNavigate,
@@ -216,6 +220,9 @@ import cc.novelia.app.ui.theme.LocalEInkMode
     }
 }
 
-/** 电子纸上的相近底色用轮廓分隔，保持卡片边界可辨。 */
-@Composable internal fun profileCardBorder(): BorderStroke? =
-    if(LocalEInkMode.current) BorderStroke(1.dp, MaterialTheme.colorScheme.outline) else null
+/** 电子纸使用清晰轮廓，纯黑模式用细弱边框补足近黑卡片的边界。 */
+@Composable internal fun profileCardBorder(): BorderStroke? = when {
+    LocalEInkMode.current -> BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+    LocalAmoledBlack.current -> BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .65f))
+    else -> null
+}
