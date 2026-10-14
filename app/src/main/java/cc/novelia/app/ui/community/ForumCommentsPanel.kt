@@ -78,7 +78,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
     var text by rememberSaveable(draftKey) { mutableStateOf(state.drafts[draftKey] ?: editing?.content.orEmpty()) }
     val latestDraft by rememberUpdatedState(draftKey to text)
     val renderer = rememberMarkdownRenderer(c, documentUrl)
-    Box(Modifier.fillMaxSize()) {
+    // 同时保护主评论和展开回复中的页码输入，编辑器收起或讨论锁定时也生效。
+    Box(Modifier.fillMaxSize().imePadding()) {
     Column(Modifier.fillMaxSize()) {
         AsyncContent(listOf(discussionKey, page, binding, profile?.role), refreshKey = version, load = {
             session.ensureCurrent(binding)
@@ -127,7 +128,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
         }
         if(locked && editing == null) Text("此讨论已锁定，暂时不能回复。", Modifier.padding(20.dp))
         else CommentEditor(composerExpanded, { composerExpanded = false }) {
-        Column(Modifier.fillMaxWidth().imePadding().padding(12.dp)) {
+        Column(Modifier.fillMaxWidth().padding(12.dp)) {
             val commentContent = text.trim()
             val commentError = ForumRules.contentError(commentContent, comment = true)
             val canSend = profile == null || ForumRules.canWrite(profile)

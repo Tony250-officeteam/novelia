@@ -46,7 +46,8 @@ import kotlinx.coroutines.launch
     if(!site.startsWith("article-") && preferences.hideNovelComments) { EmptyState("小说评论已隐藏", "可以在设置的阅读体验中重新开启。", Icons.Outlined.CommentsDisabled); return }
     val markdownRenderer = rememberMarkdownRenderer(c)
     val documentUrl = remember(site) { MarkdownLinks.commentDocumentUrl(site) }
-    Box(Modifier.fillMaxSize()) {
+    // 页码输入也会唤起键盘，整个评论区都要避让，不能只依赖展开的编辑器。
+    Box(Modifier.fillMaxSize().imePadding()) {
     Column(Modifier.fillMaxSize()) {
         AsyncContent(listOf(site, parent, page, profile?.username), refreshKey = version, load = { c.api.get<Page<Comment>>("comment", buildMap { put("site", site); put("page", "$page"); put("pageSize", "20"); parent?.let { put("parentId", it) } }) }, modifier = Modifier.weight(1f)) { result, _ ->
             val comments = remember(result.items, preferences.blockedUsers) { result.items.filter { it.user.username !in preferences.blockedUsers } }
@@ -82,7 +83,7 @@ import kotlinx.coroutines.launch
             .padding(bottom = if(feedback.currentSnackbarData != null && !locked && !composerExpanded) 80.dp else 0.dp))
         if(locked) Text("此讨论已锁定，暂时不能回复。", Modifier.padding(20.dp), style = MaterialTheme.typography.bodyMedium)
         else CommentEditor(composerExpanded, { composerExpanded = false }) {
-        Box(Modifier.fillMaxWidth().imePadding().padding(12.dp)) {
+        Box(Modifier.fillMaxWidth().padding(12.dp)) {
             MarkdownCommentInput(text, { text = it; c.store.update { s -> s.copy(drafts = s.drafts + ("comment:$site:$parent" to text)) } }, if(parent == null) "写下评论" else "回复这条评论") {
             AppFilledIconButton(onClick = { c.requireLogin { c.action { sending = true; try { val submittedText = text; val body = buildMap { put("site", site); put("content", submittedText.trim()); parent?.let { put("parent", it) } }; c.api.post("comment", body); if(text == submittedText) { text = ""; composerExpanded = false; c.store.update { it.copy(drafts = it.drafts - "comment:$site:$parent") } }; version++ } finally { sending = false } } } }, enabled = text.isNotBlank() && !sending) { Icon(Icons.Outlined.Send, "发送评论") }
             }
