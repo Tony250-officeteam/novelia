@@ -78,6 +78,7 @@ $env:ANDROID_SERIAL = '<专用测试设备序列号>'
 - Android 平台解析：`ForumCommunityRulesParserAndroidTest`。
 - 文件/恢复：`BookExportUiTest`、`LibraryBackupFlowTest`、`files.downloads.BookFileActionsTest`、`files.importing.DownloadImportCleanupTest`；书架移除时的持久化清理仍由 `data.storage.ShelfCopyCleanupTest` 覆盖。
 - 静态交互：`EInkReaderFlowTest`、`ReducedMotionSheetTest`、`PanelSessionTest`。`EInkReaderFlowTest` 同时覆盖物理按键、滚动/分页锚点互换、搜索与重新进入阅读；离开阅读器后按现有“阅读与朗读”“外观与操作”分类检查设置。
+- 设置分类转场：`SettingsMotionTest` 覆盖六个分类的进入/返回中间帧、快速系统返回、电子纸与减少动效直接切换、途中关闭动画及保留滚动位置；`SettingsCategoriesTest` 验证分类与重建恢复。
 
 直接使用 instrumentation 时 runner 为 `cc.novelia.app.test/androidx.test.runner.AndroidJUnitRunner`。测试中止、`INSTRUMENTATION_FAILED` 和跳过都不能记作通过。
 

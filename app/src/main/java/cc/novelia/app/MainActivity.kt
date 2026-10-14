@@ -9,8 +9,6 @@ import androidx.activity.compose.ReportDrawnWhen
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.*
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -63,7 +61,8 @@ import cc.novelia.app.ui.shelf.BookUpdatesScreen
 import cc.novelia.app.ui.shelf.FavoriteSheet
 import cc.novelia.app.ui.shelf.HistoryScreen
 import cc.novelia.app.ui.theme.AppInteractionMode
-import cc.novelia.app.ui.theme.AppMotion
+import cc.novelia.app.ui.theme.appPageEnterTransition
+import cc.novelia.app.ui.theme.appPageExitTransition
 import cc.novelia.app.ui.theme.NoveliaTheme
 import cc.novelia.app.ui.theme.appReducedMotion
 import cc.novelia.app.ui.tools.ToolsScreen
@@ -173,29 +172,29 @@ class MainActivity : ComponentActivity() {
                     // NavHost 的尺寸不随当前路由改变；各根页面自己持有侧栏/底栏。
                     val bottomPadding = PaddingValues(bottom = padding.calculateBottomPadding())
                     Box(Modifier.fillMaxSize().padding(bottomPadding).consumeWindowInsets(bottomPadding)) {
-                        val duration = if(appReducedMotion()) 0 else AppMotion.Standard
+                        val reducedMotion = appReducedMotion()
                         val travel = with(LocalDensity.current) { 24.dp.roundToPx() }
                         fun staticReader(entry: androidx.navigation.NavBackStackEntry): Boolean = entry.destination.route?.startsWith("reader/") == true &&
                             "${entry.arguments?.getString("provider")}/${entry.arguments?.getString("id")}" in appearance.eInkBooks
                         NavHost(nav, startDestination = "shelf", modifier = Modifier.fillMaxSize()
                             .then(if(edgeToolbarExpanded) Modifier.clearAndSetSemantics { } else Modifier), enterTransition = {
-                            if(duration == 0 || staticReader(initialState) || staticReader(targetState)) return@NavHost EnterTransition.None
+                            if(reducedMotion || staticReader(initialState) || staticReader(targetState)) return@NavHost EnterTransition.None
                             val from = roots.indexOf(initialState.destination.route)
                             val to = roots.indexOf(targetState.destination.route)
                             val direction = if(from >= 0 && to >= 0 && to < from) -1 else 1
-                            fadeIn(tween(duration)) + slideInHorizontally(tween(duration, easing = FastOutSlowInEasing)) { direction * travel }
+                            appPageEnterTransition(travel, direction = direction)
                         }, exitTransition = {
-                            if(duration == 0 || staticReader(initialState) || staticReader(targetState)) return@NavHost ExitTransition.None
+                            if(reducedMotion || staticReader(initialState) || staticReader(targetState)) return@NavHost ExitTransition.None
                             val from = roots.indexOf(initialState.destination.route)
                             val to = roots.indexOf(targetState.destination.route)
                             val direction = if(from >= 0 && to >= 0 && to < from) -1 else 1
-                            fadeOut(tween(AppMotion.Exit)) + slideOutHorizontally(tween(duration, easing = FastOutSlowInEasing)) { -direction * travel / 2 }
+                            appPageExitTransition(travel, direction = direction)
                         }, popEnterTransition = {
-                            if(duration == 0 || staticReader(initialState) || staticReader(targetState)) return@NavHost EnterTransition.None
-                            fadeIn(tween(duration)) + slideInHorizontally(tween(duration, easing = FastOutSlowInEasing)) { -travel / 2 }
+                            if(reducedMotion || staticReader(initialState) || staticReader(targetState)) return@NavHost EnterTransition.None
+                            appPageEnterTransition(travel, back = true)
                         }, popExitTransition = {
-                            if(duration == 0 || staticReader(initialState) || staticReader(targetState)) return@NavHost ExitTransition.None
-                            fadeOut(tween(AppMotion.Exit)) + slideOutHorizontally(tween(duration, easing = FastOutSlowInEasing)) { travel }
+                            if(reducedMotion || staticReader(initialState) || staticReader(targetState)) return@NavHost ExitTransition.None
+                            appPageExitTransition(travel, back = true)
                         }) {
                             composable("shelf") { entry ->
                                 var compactShelfDetail by rememberSaveable { mutableStateOf(false) }

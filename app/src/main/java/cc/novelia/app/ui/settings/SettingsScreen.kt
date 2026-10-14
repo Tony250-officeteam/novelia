@@ -6,6 +6,12 @@ import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.SeekableTransitionState
+import androidx.compose.animation.core.rememberTransition
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
@@ -13,6 +19,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cc.novelia.app.data.model.ReaderSettings
@@ -33,6 +43,9 @@ import cc.novelia.app.ui.markdown.format
 import cc.novelia.app.ui.navigation.AppController
 import cc.novelia.app.ui.reader.ReaderPreferences
 import cc.novelia.app.ui.reader.rememberReaderPreferencesState
+import cc.novelia.app.ui.theme.appPageEnterTransition
+import cc.novelia.app.ui.theme.appPageExitTransition
+import cc.novelia.app.ui.theme.appReducedMotion
 import coil.imageLoader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -49,22 +62,35 @@ private enum class SettingsSection(val title: String, val summary: String) {
 
 @Composable fun SettingsScreen(c: AppController, initialSection: String? = null) {
     var sectionName by rememberSaveable { mutableStateOf(initialSection?.takeIf { name -> SettingsSection.entries.any { it.name == name } }) }
-    val section = SettingsSection.entries.firstOrNull { it.name == sectionName }
-    BackHandler(section != null) { sectionName = null }
-    if(section == SettingsSection.NETWORK) {
-        NetworkSyncScreen(c, onBack = { sectionName = null })
-        return
+    val selectedSection = SettingsSection.entries.firstOrNull { it.name == sectionName }
+    BackHandler(selectedSection != null) { sectionName = null }
+    val reducedMotion = appReducedMotion()
+    val travel = with(LocalDensity.current) { 24.dp.roundToPx() }
+    val pageState = remember { SeekableTransitionState(selectedSection) }
+    val pageTransition = rememberTransition(pageState, label = "settings page")
+    LaunchedEffect(selectedSection, reducedMotion) {
+        // 动画途中切换电子纸/减少动效时直接结束，保留当前页的记忆状态。
+        if(reducedMotion) pageState.snapTo(selectedSection) else pageState.animateTo(selectedSection)
     }
     val state by c.store.state.collectAsStateWithLifecycle(); var reader by remember { mutableStateOf(false) }; var clear by remember { mutableStateOf(false) }; var size by remember { mutableStateOf<Long?>(null) }
     var clearing by remember { mutableStateOf(false) }
     val preferenceState = rememberReaderPreferencesState(reader)
     val keywordTransfer = rememberKeywordTransfer(c)
     val keywordLibrary by c.app.keywords.state.collectAsStateWithLifecycle()
-    LaunchedEffect(c, section) { if(section == SettingsSection.STORAGE) size = withContext(Dispatchers.IO) { c.store.cacheSize() + (c.app.imageLoader.diskCache?.size ?: 0L) } }
+    LaunchedEffect(c, selectedSection) { if(selectedSection == SettingsSection.STORAGE) size = withContext(Dispatchers.IO) { c.store.cacheSize() + (c.app.imageLoader.diskCache?.size ?: 0L) } }
     val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> c.message(if(granted) "已允许通知" else "可在系统设置中开启通知") }
     val exportSettings = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri -> uri?.let { c.action("设置已导出") { val s = c.store.state.value; val backup = SettingsBackup(reader = s.reader, theme = s.theme, reducedMotion = s.reducedMotion, squareCorners = s.squareCorners, amoledBlack = s.amoledBlack, edgeToolbar = s.edgeToolbar.normalized(), blockedBooks = s.blockedBooks, blockedTags = s.blockedTags, blockedAuthors = s.blockedAuthors, blockedUsers = s.blockedUsers, hideNovelComments = s.hideNovelComments, wifiOnly = s.wifiOnly, autoCollapseCloudFilters = s.autoCollapseCloudFilters, autoSaveCloudFavoritesLocally = s.autoSaveCloudFavoritesLocally, clipboardLinkHints = s.clipboardLinkHints, autoCheckAppUpdates = s.autoCheckAppUpdates, keywordLimit = s.keywordLimit, deleteDownloadAfterImport = s.deleteDownloadAfterImport, deleteLocalCopyOnShelfRemoval = s.deleteLocalCopyOnShelfRemoval); withContext(Dispatchers.IO) { c.app.contentResolver.openOutputStream(it)?.use { output -> output.write(appJson.encodeToString(backup).toByteArray()) } ?: error("无法写入文件") } } } }
     val importSettings = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { c.action("设置已导入") { val backup = withContext(Dispatchers.IO) { appJson.decodeFromString<SettingsBackup>(readDocument(c, it).second.toString(Charsets.UTF_8)) }; require(backup.edgeToolbar.valid && backup.version == 1 && backup.theme in listOf("system", "light", "dark") && (backup.keywordLimit == null || backup.keywordLimit > 0) && backup.reader.fontSize in 14f..32f && backup.reader.lineHeight in ReaderSettings.LINE_HEIGHT_RANGE && backup.reader.paragraphSpacing in 0f..32f && backup.reader.width in 300f..900f && backup.reader.engines.toSet() == setOf("sakura", "gpt", "youdao") && backup.reader.theme in ReaderSettings.THEMES && backup.reader.customColors.valid); c.store.update { s -> s.copy(reader = backup.reader, theme = backup.theme, reducedMotion = backup.reducedMotion, squareCorners = backup.squareCorners, amoledBlack = backup.amoledBlack, edgeToolbar = backup.edgeToolbar, blockedBooks = backup.blockedBooks, blockedTags = backup.blockedTags, blockedAuthors = backup.blockedAuthors, blockedUsers = backup.blockedUsers, hideNovelComments = backup.hideNovelComments, wifiOnly = backup.wifiOnly, autoCollapseCloudFilters = backup.autoCollapseCloudFilters, autoSaveCloudFavoritesLocally = backup.autoSaveCloudFavoritesLocally, clipboardLinkHints = backup.clipboardLinkHints, autoCheckAppUpdates = backup.autoCheckAppUpdates, keywordLimit = backup.keywordLimit, deleteDownloadAfterImport = backup.deleteDownloadAfterImport, deleteLocalCopyOnShelfRemoval = backup.deleteLocalCopyOnShelfRemoval) } } } }
-    ProfileDetailScreen(section?.title ?: "设置", { if(section != null) sectionName = null else c.back() }) { padding -> key(section) { ProfileDetailList(Modifier.padding(padding)) {
+    pageTransition.AnimatedContent(Modifier.fillMaxSize().clipToBounds(), transitionSpec = {
+        val back = targetState == null
+        val enter = if(reducedMotion) EnterTransition.None else appPageEnterTransition(travel, back)
+        val exit = if(reducedMotion) ExitTransition.None else appPageExitTransition(travel, back)
+        (enter togetherWith exit).using(null)
+    }) { section ->
+    Box(Modifier.fillMaxSize().testTag("settings-page-${section?.name ?: "index"}")
+        .then(if(section == selectedSection) Modifier else Modifier.clearAndSetSemantics { })) {
+    if(section == SettingsSection.NETWORK) NetworkSyncScreen(c, onBack = { sectionName = null })
+    else ProfileDetailScreen(section?.title ?: "设置", { if(section != null) sectionName = null else c.back() }) { padding -> key(section) { ProfileDetailList(Modifier.padding(padding)) {
         if(section == null) {
             SettingsSection.entries.forEach { group -> item {
                 val icon = when(group) {
@@ -122,6 +148,8 @@ private enum class SettingsSection(val title: String, val summary: String) {
         item { ProfileSummary("本地数据", "小说文件、书签和偏好保存在此设备。系统文件选择器负责导入和导出，无需申请全部存储空间权限。卸载应用会删除这些数据，请先导出需要保留的文件。") }
         }
     } } }
+    }
+    }
     if(reader) AppSheet(onDismissRequest = { reader = false }) { ReaderPreferences(state.reader, state = preferenceState) { value -> c.store.update { it.copy(reader = value) } } }
     if(clear) ConfirmDialog("清理阅读与图片缓存？", "已缓存的网络章节、详情和图片会被删除，之后需要联网加载。本地导入的小说和下载文件不受影响。", { clear = false }, confirmLabel = "清理缓存") {
         clearing = true

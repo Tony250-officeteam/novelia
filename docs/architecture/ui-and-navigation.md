@@ -37,6 +37,8 @@ c.openMarkdownLink(url, baseUrl)
 
 根标签走 [RootNavigation.kt](../../app/src/main/java/cc/novelia/app/ui/navigation/RootNavigation.kt)：保存切走页面的状态，切回书架时显示书架列表而不恢复旧详情子栈。普通书籍、帖子跳转仍保留自己的返回历史。
 
+设置分类保留页内导航和 `rememberSaveable` 分类恢复，通过 `SeekableTransitionState` 驱动整页 `AnimatedContent`，标题与内容一起进出。设置与根导航复用 [AppPageMotion.kt](../../app/src/main/java/cc/novelia/app/ui/theme/AppPageMotion.kt) 的 24 dp 位移、220 ms 入场/位移及 120 ms 淡出；返回反向播放，不启用尺寸动画。退场页面隐藏无障碍入口；静态模式及转场中开启减少动效直接完成切换，不重建当前页面的记忆状态。
+
 ## 边缘工具栏覆盖层
 
 [EdgeToolbar.kt](../../app/src/main/java/cc/novelia/app/ui/toolbar/EdgeToolbar.kt) 挂在 `NavHost` 同级，观察工具栏偏好和活动下载数量的轻量投影。圆点与面板不改变正文视口；面板一次测量后按圆点中心定位并夹在可用区域内，内容超高时滚动。根导航报告实际底栏高度和侧栏宽度，阅读器按导航项 ID 报告菜单、阻挡浮层及上下工具栏高度，避免退出中的旧章节影响当前页面。
