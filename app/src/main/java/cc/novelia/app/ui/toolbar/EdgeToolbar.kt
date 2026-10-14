@@ -1,6 +1,7 @@
 package cc.novelia.app.ui.toolbar
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -20,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
@@ -129,6 +131,15 @@ import kotlin.math.roundToInt
         (size.height - anchorInsets.bottom - gap).coerceAtLeast(anchorInsets.top + gap))
     val shown = visible && anchor.width >= touch * 2 && anchor.height >= touch
     val open = shown && expanded
+    val dotVisibility = edgeToolbarVisibility(shown, reduced)
+    val panelVisibility = edgeToolbarVisibility(open, reduced)
+    val renderDot by remember(shown, dotVisibility) { derivedStateOf { shown || dotVisibility.value > 0f } }
+    val renderPanel by remember(open, panelVisibility) { derivedStateOf { open || panelVisibility.value > 0f } }
+    // 离页时用原来的面板边界退场，避免先跳到新页面的避让位置再消失。
+    val panelAnchor = bounds to anchor.centerY(fraction, touch)
+    var lastOpenPanelAnchor by remember { mutableStateOf(panelAnchor) }
+    SideEffect { if(open) lastOpenPanelAnchor = panelAnchor }
+    val (panelBounds, panelCenterY) = if(open) panelAnchor else lastOpenPanelAnchor
     val savePosition by rememberUpdatedState(onPositionChange)
     fun wake() { idle = false; interaction++ }
     fun close() { expanded = false; wake() }
@@ -148,8 +159,10 @@ import kotlin.math.roundToInt
     SideEffect { onExpandedChanged(open) }
     DisposableEffect(Unit) { onDispose { onExpandedChanged(false) } }
     BackHandler(open) { close() }
-    val retreat by animateFloatAsState(if(idle && !open && !dragging) 1f else 0f,
+    val retreatTarget = if(idle && !open && !dragging) 1f else 0f
+    val animatedRetreat by animateFloatAsState(retreatTarget,
         tween(if(reduced) 0 else AppMotion.Standard), label = "edge dot retreat")
+    val retreat = if(reduced) retreatTarget else animatedRetreat
     val dotAlpha = if(eInk) 1f else 1f - retreat * (1f - preferences.idleOpacity)
     val rightSide = preferences.side == "right"
     val shift = with(density) { 24.dp.toPx() } * retreat * if(rightSide) 1 else -1
@@ -159,22 +172,24 @@ import kotlin.math.roundToInt
     val navigateUpdated by rememberUpdatedState<(String) -> Unit>({ navigate(it) })
     Layout(modifier = Modifier.fillMaxSize().clipToBounds().onSizeChanged { size = it }
         .testTag("edge-toolbar-layer"), content = {
-        if(open) {
+        if(renderPanel) {
             Box(Modifier.fillMaxSize().background(if(eInk) Color.Transparent else MaterialTheme.colorScheme.scrim.copy(alpha = .10f))
-                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { close() }
+                .clickable(enabled = open, interactionSource = remember { MutableInteractionSource() }, indication = null) { close() }
                 .clearAndSetSemantics { }.testTag("edge-toolbar-scrim"))
             Surface(shape = panelShape, color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 shadowElevation = if(eInk) 0.dp else 6.dp,
-                modifier = Modifier.testTag("edge-toolbar-panel").semantics { paneTitle = "快捷入口"; isTraversalGroup = true }) {
-                Column(Modifier.appVerticalScroll(rememberScrollState()).padding(8.dp)) {
+                modifier = Modifier.testTag("edge-toolbar-panel")
+                    .then(if(open) Modifier.semantics { paneTitle = "快捷入口"; isTraversalGroup = true }
+                        else Modifier.clearAndSetSemantics { })) {
+                Column(Modifier.appVerticalScroll(rememberScrollState(), enabled = open).padding(8.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text("快捷入口", Modifier.weight(1f).padding(start = 8.dp), style = MaterialTheme.typography.titleSmall)
-                        AppIconButton(onClick = { navigate("edge-toolbar-edit") }) { Icon(Icons.Outlined.Edit, "编辑快捷入口") }
-                        AppIconButton(onClick = { close() }) { Icon(Icons.Outlined.Close, "收起快捷入口") }
+                        AppIconButton(onClick = { navigate("edge-toolbar-edit") }, enabled = open) { Icon(Icons.Outlined.Edit, "编辑快捷入口") }
+                        AppIconButton(onClick = { close() }, enabled = open) { Icon(Icons.Outlined.Close, "收起快捷入口") }
                     }
                     preferences.entries.forEach { id ->
                         val entry = edgeShortcuts.first { it.id == id }
-                        Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable { navigate(entry.id) }.padding(10.dp),
+                        Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable(enabled = open) { navigate(entry.id) }.padding(10.dp),
                             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Icon(entry.icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
                             Text(entry.title, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
@@ -186,29 +201,34 @@ import kotlin.math.roundToInt
                         }
                     }
                     HorizontalDivider(Modifier.padding(vertical = 4.dp))
-                    AppTextButton(onClick = { navigate("edge-toolbar") }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                    AppTextButton(onClick = { navigate("edge-toolbar") }, enabled = open, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                         Icon(Icons.Outlined.Tune, null, Modifier.size(20.dp)); Spacer(Modifier.width(12.dp)); Text("工具栏设置")
                     }
                 }
             }
         }
-        if(shown) {
+        if(renderDot) {
             Box(Modifier.size(48.dp).clipToBounds().testTag("edge-toolbar-dot")
+                .then(if(shown) Modifier else Modifier.clearAndSetSemantics { })
                 .onFocusChanged { focused = it.isFocused }
-                .pointerInput(pageKey, anchor, preferences.side) {
+                .pointerInput(pageKey, anchor, preferences.side, shown, eInk) {
+                    if(!shown) return@pointerInput
+                    // 电子纸只累计目标高度；松手一次定位，不在移动事件中触发绘制。
+                    var dragFraction = fraction
                     try {
                         detectVerticalDragGestures(
-                            onDragStart = { dragOrigin = fraction; dragging = true; wake() },
-                            onDragEnd = { dragging = false; savePosition(fraction); wake() },
+                            onDragStart = { dragOrigin = fraction; dragFraction = fraction; dragging = true; wake() },
+                            onDragEnd = { fraction = dragFraction; dragging = false; savePosition(fraction); wake() },
                             onDragCancel = { fraction = dragOrigin; dragging = false; wake() },
                             onVerticalDrag = { change, amount ->
                                 change.consume()
-                                fraction = anchor.fractionAt(anchor.centerY(fraction, touch) + amount, touch)
+                                dragFraction = anchor.fractionAt(anchor.centerY(dragFraction, touch) + amount, touch)
+                                if(!eInk) fraction = dragFraction
                             },
                         )
                     } finally { if(dragging) { fraction = dragOrigin; dragging = false } }
                 }
-                .clickable(interactionSource = interactionSource, indication = null, role = Role.Button,
+                .clickable(enabled = shown, interactionSource = interactionSource, indication = null, role = Role.Button,
                     onClickLabel = if(open) "收起快捷入口" else "打开快捷入口") { wake(); expanded = !expanded }
                 .semantics {
                     contentDescription = "快捷工具栏"
@@ -230,18 +250,38 @@ import kotlin.math.roundToInt
     }) { measurables, constraints ->
         val width = constraints.maxWidth
         val height = constraints.maxHeight
-        val dot = if(shown) measurables.last().measure(Constraints.fixed(touch, touch)) else null
-        val scrim = if(open) measurables[0].measure(Constraints.fixed(width, height)) else null
-        val panelWidth = minOf(248.dp.roundToPx(), (bounds.width - 68.dp.roundToPx()).coerceAtLeast(1))
-        val panel = if(open) measurables[1].measure(Constraints(minWidth = panelWidth, maxWidth = panelWidth, maxHeight = bounds.height)) else null
+        val dot = if(renderDot) measurables.last().measure(Constraints.fixed(touch, touch)) else null
+        val scrim = if(renderPanel) measurables[0].measure(Constraints.fixed(width, height)) else null
+        val panelWidth = minOf(248.dp.roundToPx(), (panelBounds.width - 68.dp.roundToPx()).coerceAtLeast(1))
+        val panel = if(renderPanel) measurables[1].measure(Constraints(minWidth = panelWidth, maxWidth = panelWidth, maxHeight = panelBounds.height)) else null
         val centerY = anchor.centerY(fraction, touch)
         layout(width, height) {
-            scrim?.place(0, 0)
+            scrim?.placeWithLayer(0, 0) { alpha = panelVisibility.value }
             panel?.let {
-                val x = if(rightSide) bounds.right - 56.dp.roundToPx() - it.width else bounds.left + 56.dp.roundToPx()
-                it.place(x.coerceIn(bounds.left, (bounds.right - it.width).coerceAtLeast(bounds.left)), bounds.panelTop(centerY, it.height))
+                val x = if(rightSide) panelBounds.right - 56.dp.roundToPx() - it.width else panelBounds.left + 56.dp.roundToPx()
+                val y = panelBounds.panelTop(panelCenterY, it.height)
+                it.placeWithLayer(x.coerceIn(panelBounds.left, (panelBounds.right - it.width).coerceAtLeast(panelBounds.left)), y) {
+                    alpha = panelVisibility.value
+                    scaleX = .96f + .04f * panelVisibility.value
+                    scaleY = scaleX
+                    transformOrigin = TransformOrigin(if(rightSide) 1f else 0f,
+                        ((panelCenterY - y) / it.height.coerceAtLeast(1)).coerceIn(0f, 1f))
+                }
             }
-            dot?.place(if(rightSide) anchor.right - touch else anchor.left, (centerY - touch / 2f).roundToInt())
+            dot?.placeWithLayer(if(rightSide) anchor.right - touch else anchor.left, (centerY - touch / 2f).roundToInt()) {
+                alpha = dotVisibility.value
+            }
         }
     }
+}
+
+/** 保留退场内容；反向切换从当前进度继续，静态模式在当帧直接采用目标值。 */
+@Composable private fun edgeToolbarVisibility(visible: Boolean, reduced: Boolean): State<Float> {
+    val progress = remember { Animatable(0f) }
+    val target = if(visible) 1f else 0f
+    LaunchedEffect(visible, reduced) {
+        if(reduced) progress.snapTo(target)
+        else progress.animateTo(target, tween(if(visible) AppMotion.Standard else AppMotion.Quick))
+    }
+    return remember(visible, reduced) { derivedStateOf { if(reduced) target else progress.value } }
 }

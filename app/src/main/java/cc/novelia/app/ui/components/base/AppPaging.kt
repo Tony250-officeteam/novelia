@@ -103,17 +103,17 @@ internal class SheetEndOverscrollConnection(private val canScrollForward: () -> 
         if (available.y < 0f && !canScrollForward()) Velocity(0f, available.y) else Velocity.Zero
 }
 
-@Composable internal fun Modifier.appVerticalScroll(state: ScrollState): Modifier = appScroll(state, false)
+@Composable internal fun Modifier.appVerticalScroll(state: ScrollState, enabled: Boolean = true): Modifier = appScroll(state, false, enabled)
 @Composable internal fun Modifier.appHorizontalScroll(state: ScrollState): Modifier = appScroll(state, true)
 
-@Composable private fun Modifier.appScroll(state: ScrollState, horizontal: Boolean): Modifier {
+@Composable private fun Modifier.appScroll(state: ScrollState, horizontal: Boolean, enabled: Boolean = true): Modifier {
     val eInk = LocalEInkMode.current
     val scope = rememberCoroutineScope()
     val overlap = with(LocalDensity.current) { 48.dp.toPx() }
     val page: (Int) -> Unit = { direction -> scope.launch { state.scrollBy(direction * screenPageDistance(state.viewportSize, overlap)) }; Unit }
-    LaunchedEffect(eInk) { if(eInk) state.stopScroll() }
-    val input = screenPageInput(eInk, horizontal, page) { amount -> scope.launch { state.scrollBy(amount) }; Unit }
-    return if(horizontal) input.horizontalScroll(state, enabled = !eInk) else input.verticalScroll(state, enabled = !eInk)
+    LaunchedEffect(eInk, enabled) { if(eInk || !enabled) state.stopScroll() }
+    val input = screenPageInput(eInk && enabled, horizontal, page) { amount -> scope.launch { state.scrollBy(amount) }; Unit }
+    return if(horizontal) input.horizontalScroll(state, enabled = enabled && !eInk) else input.verticalScroll(state, enabled = enabled && !eInk)
 }
 
 @Composable internal fun ScreenPageButtons(back: Boolean, forward: Boolean, page: (Int) -> Unit) {

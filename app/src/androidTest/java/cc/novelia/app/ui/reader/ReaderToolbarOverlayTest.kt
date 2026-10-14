@@ -71,6 +71,39 @@ class ReaderToolbarOverlayTest {
         assertEquals(original, dotBounds())
     }
 
+    @Test fun edgeToolbarUsesPerBookEInkForDraggingAndVisibility() = withReader(ReaderSettings()) { app, ref ->
+        compose.runOnIdle { app.store.update {
+            it.copy(edgeToolbar = EdgeToolbarSettings(idleSeconds = 0),
+                bookSettings = it.bookSettings + (ref.key to it.reader.withEInkMode(true)))
+        } }
+        compose.waitUntil(15_000) { compose.onAllNodesWithTag("reader-page").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("edge-toolbar-dot").fetchSemanticsNodes().isNotEmpty() }
+        val body = snapshot("reader-page")
+        val dot = compose.onNodeWithTag("edge-toolbar-dot")
+        val original = dot.fetchSemanticsNode().boundsInRoot
+        dot.performTouchInput { down(center); moveBy(Offset(0f, -120f)) }
+        assertEquals("仅单书开启电子纸也不能逐帧拖动", original, dot.fetchSemanticsNode().boundsInRoot)
+        compose.runOnIdle { assertEquals(.55f, app.store.state.value.edgeToolbar.position, 0f) }
+        dot.performTouchInput { up() }
+        assertTrue(dot.fetchSemanticsNode().boundsInRoot.top < original.top)
+        compose.waitUntil(5_000) { app.store.state.value.edgeToolbar.position < .55f }
+        compose.mainClock.autoAdvance = false
+        dot.performClick()
+        compose.mainClock.advanceTimeByFrame()
+        compose.onNodeWithTag("edge-toolbar-panel").assertIsDisplayed()
+        dot.performClick()
+        compose.mainClock.advanceTimeByFrame()
+        compose.onNodeWithTag("edge-toolbar-panel").assertDoesNotExist()
+        // 面板立即移除后，根导航在下一次重组恢复底层无障碍节点。
+        compose.mainClock.advanceTimeByFrame()
+        assertEquals(body, snapshot("reader-page"))
+        compose.onNodeWithTag("reader-page").performTouchInput { click(center) }
+        // 阅读菜单先上报可见状态，根工具栏下一帧接收；这里不推进任何过渡时长。
+        compose.mainClock.advanceTimeByFrame()
+        compose.mainClock.advanceTimeByFrame()
+        dot.assertDoesNotExist()
+    }
+
     @Test fun firstTapEnableShowsDismissibleGuideOnceWithoutMovingTheReadingPosition() = withReader(
         ReaderSettings(), tapTutorialSeen = false
     ) { app, ref ->

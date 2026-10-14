@@ -71,7 +71,7 @@ $env:ANDROID_SERIAL = '<专用测试设备序列号>'
 设备测试按 [ui](../../app/src/androidTest/java/cc/novelia/app/ui)、[data](../../app/src/androidTest/java/cc/novelia/app/data)、[files](../../app/src/androidTest/java/cc/novelia/app/files)、[integration](../../app/src/androidTest/java/cc/novelia/app/integration) 和 [performance](../../app/src/androidTest/java/cc/novelia/app/performance) 等职责组织。重点入口包括：
 
 - 导航和双栏：`RootNavigationTest`、`AdaptiveLibraryTest`。
-- 边缘工具栏：`EdgeToolbarTest`，覆盖闲置后单击展开、拖动保存、跨页面及临时隐藏时保留位置和闲置计时；`ReaderToolbarOverlayTest` 额外验证阅读菜单、系统状态栏和历史页切换不挪动圆点。
+- 边缘工具栏：`EdgeToolbarTest`，覆盖闲置后单击展开、拖动保存、跨页面及临时隐藏时保留位置和闲置计时、显隐中间帧与快速反向切换、静态模式即时显隐、电子纸松手定位和拖动取消；`ReaderToolbarOverlayTest` 额外验证阅读菜单、系统状态栏和历史页切换不挪动圆点，以及单书电子纸设置对工具栏显隐和拖动的作用。
 - 正文和手势：`ReaderAdaptiveUiTest`、`ReaderToolbarOverlayTest`、`ReaderTapNavigationTest`、`ReaderSpacingTest`；位置恢复与阅读返回另看 `ReadingContinuityUiTest`、`ReaderCompletionFlowTest`。阅读器组件拆分仍需覆盖工具栏开关不改变正文视口、滚动/分页互换保留锚点、后台再前台及段落测量。
 - 论坛与编辑：`ForumEditorUiTest`、`ForumCommentThreadTest`、`EditorDraftLifecycleTest`。
 - 会话：`NativeLoginSessionTest`、`MirrorSessionTest`、`ForumMirrorSessionTest`、`ForumSessionIsolationTest`、`ForumSharedAuthTest`；原生登录界面另见 `integration.AuthPageTest`、`ui.account.ForumMirrorLoginTest` 和 `ui.settings.BookSourceNavigationTest`。
