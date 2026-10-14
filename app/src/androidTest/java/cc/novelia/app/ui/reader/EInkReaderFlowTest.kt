@@ -150,7 +150,10 @@ class EInkReaderFlowTest {
                 if(compose.onAllNodesWithText("设置").fetchSemanticsNodes().isEmpty()) compose.onNodeWithText("下一屏").performClick()
             }
             compose.onNodeWithText("设置").performScrollTo().performClick()
+            compose.onNodeWithText("阅读与朗读").performScrollTo().performClick()
             compose.waitUntil(10_000) { compose.onAllNodesWithText("默认阅读偏好").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithContentDescription("返回").performClick()
+            compose.onNodeWithText("外观与操作").performScrollTo().performClick()
             // 电子纸关闭连续滚动，使用设置页实际提供的翻屏按钮定位。
             repeat(4) {
                 if(runCatching { compose.onNodeWithText("剪贴板链接提示").assertIsDisplayed() }.isFailure) {

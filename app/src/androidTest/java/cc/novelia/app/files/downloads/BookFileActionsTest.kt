@@ -1,10 +1,11 @@
-package cc.novelia.app.data.storage
+package cc.novelia.app.files.downloads
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import cc.novelia.app.NoveliaApplication
 import cc.novelia.app.data.library.downloadedVolume
 import cc.novelia.app.data.model.*
+import cc.novelia.app.data.storage.LocalStore
 import cc.novelia.app.files.*
 import java.io.File
 import java.util.UUID

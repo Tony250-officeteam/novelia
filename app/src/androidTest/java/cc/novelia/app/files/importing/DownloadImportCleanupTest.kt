@@ -1,4 +1,4 @@
-package cc.novelia.app.data.storage
+package cc.novelia.app.files.importing
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry

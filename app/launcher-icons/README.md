@@ -18,7 +18,7 @@
 
 ## 星川绿素材
 
-`rawIcon/` 保存原始素材，不直接参与资源打包。三张图片均为带透明通道的正方形；正式资源保留原始像素，以 Android 合法文件名复制到 `res/drawable-nodpi/`，使用自适应图标 XML 包装：
+仓库根目录的 `.local/assets/launcher-icons/` 保存本机原始素材，不提交到 Git，也不直接参与资源打包。三张图片均为带透明通道的正方形；正式资源保留原始像素，以 Android 合法文件名复制到本目录的 `res/drawable-nodpi/`，使用自适应图标 XML 包装：
 
 | 原始素材 | 尺寸 | 设置中的名称 | 稳定 id / 图标 XML |
 | --- | --- | --- | --- |
@@ -29,7 +29,7 @@
 - 图标采用脸部特写构图，背景使用与「经典绿」相同的 `#006C4C`。108dp 前景图层中的人物画布为 97.2dp，相比最初保留全图的 54dp 方案放大 1.8 倍，并向上移动 10.8dp；允许耳朵、身体和装饰被系统遮罩裁切，优先突出眼睛与表情。
 - 背景和取景参数统一定义在 `res/values/launcher_icon_styles.xml`：左右各 `5%`，顶部 `-5%`，底部 `15%`。上下与左右的边距总和相等，保持原图比例；负的上边距用于向上取景。圆形、圆角方形等遮罩仍由系统应用，参照 [Android 自适应图标规范](https://developer.android.com/develop/ui/compose/system/icon_design_adaptive)。
 - 原始 WebP 的边缘清晰度弱于两张 PNG，保留其原画风格；位图启用缩放过滤。PNG 主体的 alpha 大多为 254，接近完全不透明，不需要重新抠图。
-- 每张图片使用 `launcher_xingchuan_green*_artwork` 资源名，`icons.json` 登记对应的 XML 名称。替换图片时更新 `rawIcon/` 和对应的 `*_artwork` 文件，保持已发布的 id 和 XML 名称稳定。
+- 每张图片使用 `launcher_xingchuan_green*_artwork` 资源名，`icons.json` 登记对应的 XML 名称。替换图片时更新根目录 `.local/assets/launcher-icons/` 中的原始素材和对应的 `*_artwork` 文件，保持已发布的 id 和 XML 名称稳定。
 - 项目最低支持 Android 8.0（API 26），可以直接使用自适应图标；设置页通过系统 Drawable 渲染预览，兼容位图、矢量及自适应图标。
 
 **已经发布过的 id 不能删除或改名。** Android 会跨升级保留入口启停状态，移除正在使用的入口可能使桌面找不到应用。要下架旧图标，保留该行和资源，并增加 `"hidden": true`；它不再提供给新选择，正在使用它的用户仍可启动和换回其他图标。默认图标不能隐藏。
@@ -43,4 +43,6 @@
 - Android 12 及以上的系统启动画面跟随**已生效**的桌面图标：主界面在后台仍监听切换结果，通过 `SplashScreen.setSplashScreenTheme` 将对应主题交给系统持久化，杀进程后冷启动也使用该图标。桌面入口在转交 MainActivity 前再次同步，覆盖升级后的首次启动。前台待切换或取消选择不会提前更换启动画面；Android 8–11 保持原有窗口启动行为。
 - 桌面刷新速度、图标位置和已有固定快捷方式的处理取决于桌面应用，需在目标厂商桌面上验收。此功能切换启动器图标，通知图标仍沿用原有设置。
 
-实现：`app/build.gradle.kts` 中的 `LauncherIconManifestTask`、`LauncherSplashResourcesTask` 和 `app/src/main/java/cc/novelia/app/launcher/`。启动主题名 `Theme.Novelia.Launcher.<id>` 也必须跨版本保持稳定；Manifest 元数据直接引用主题，Release 资源压缩会保留它。入口必须在安装时存在，参见 Android 官方的 [activity-alias](https://developer.android.com/guide/topics/manifest/activity-alias-element)、[启动主题持久化](https://developer.android.com/reference/android/window/SplashScreen#setSplashScreenTheme(int))、[批量切换组件](https://developer.android.com/reference/android/content/pm/PackageManager#setComponentEnabledSettings(java.util.List)) 与 [应用进程生命周期](https://developer.android.com/reference/androidx/lifecycle/ProcessLifecycleOwner) 文档。
+构建实现集中在 [gradle/launcher-icons.gradle.kts](../../gradle/launcher-icons.gradle.kts)，由 [app/build.gradle.kts](../build.gradle.kts) 应用。脚本保留 `LauncherIconManifestTask`、`LauncherSplashResourcesTask`，按变体生成 Manifest 入口和 Android 12 启动主题，并登记图标资源目录；任务名与生成目录保持不变。运行时切换逻辑在 [launcher 包](../src/main/java/cc/novelia/app/launcher/)。
+
+启动主题名 `Theme.Novelia.Launcher.<id>` 也必须跨版本保持稳定；Manifest 元数据直接引用主题，Release 资源压缩会保留它。入口必须在安装时存在，参见 Android 官方的 [activity-alias](https://developer.android.com/guide/topics/manifest/activity-alias-element)、[启动主题持久化](https://developer.android.com/reference/android/window/SplashScreen#setSplashScreenTheme(int))、[批量切换组件](https://developer.android.com/reference/android/content/pm/PackageManager#setComponentEnabledSettings(java.util.List)) 与 [应用进程生命周期](https://developer.android.com/reference/androidx/lifecycle/ProcessLifecycleOwner) 文档。修改脚本后至少构建 Debug 和启用资源压缩的 Release，核对生成的入口、元数据及主题；切换时机仍由设备测试验证。

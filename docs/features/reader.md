@@ -20,7 +20,11 @@ flowchart LR
 
 | 修改内容 | 主要入口 |
 | --- | --- |
-| 阅读状态、工具栏、切章和位置保存 | [ReaderScreen.kt](../../app/src/main/java/cc/novelia/app/ui/reader/ReaderScreen.kt) |
+| 阅读会话、切章、搜索任务与位置写入 | [ReaderScreen.kt](../../app/src/main/java/cc/novelia/app/ui/reader/ReaderScreen.kt) |
+| 布局代次、字符锚点恢复与保存触发 | [ReaderPositionState.kt](../../app/src/main/java/cc/novelia/app/ui/reader/ReaderPositionState.kt) |
+| 顶部工具栏、章内搜索栏与底部进度控件 | [ReaderToolbars.kt](../../app/src/main/java/cc/novelia/app/ui/reader/ReaderToolbars.kt) |
+| 朗读与段落操作面板 | [ReaderActionSheets.kt](../../app/src/main/java/cc/novelia/app/ui/reader/ReaderActionSheets.kt) |
+| 滚动正文的段落渲染、测量与命中高亮 | [ReaderTextParagraph.kt](../../app/src/main/java/cc/novelia/app/ui/reader/ReaderTextParagraph.kt) |
 | 下一章加载、失败与取消 | [ReaderChapterLoad.kt](../../app/src/main/java/cc/novelia/app/ui/reader/ReaderChapterLoad.kt) |
 | 原文/译文投影 | [Paragraphs.kt](../../app/src/main/java/cc/novelia/app/reader/Paragraphs.kt)、[LocalParagraphs.kt](../../app/src/main/java/cc/novelia/app/reader/LocalParagraphs.kt) |
 | 精确锚点与搜索位置 | [ReadingAnchors.kt](../../app/src/main/java/cc/novelia/app/reader/ReadingAnchors.kt) |
@@ -95,6 +99,8 @@ flowchart LR
 搜索命中的 `part/start/end` 相对于某份语言文本。转换为段内字符坐标时，还要加上双语换行、引擎标签和缩进。修改任何显示前缀，都要同步锚点计算和两种渲染器。
 
 滚动模式等待真实文字布局后把字符换算为行位置；分页模式把字符锚点映射到测量页。语言或正文变化时优先保留同一原文段，失效的字符/像素偏移应清除。布局代次变化要取消旧定位任务，避免新文字套用旧几何信息。
+
+`ReaderPositionState` 在页面原有的章节 `key(ref, chapterId, chapter)` 内创建，跨本章重排保留恢复状态；`ReaderPositionLayout` 组合当前段落、设置和布局测量。恢复与保存触发集中在 `ReaderPositionEffects`，保留滚动停稳防抖、模式切换和生命周期的触发条件，最终由页面写入位置。工具栏和操作面板只展示状态并发出回调，切章、搜索协程和资料写入仍由页面协调。
 
 ## 进度、历史和查阅返回
 

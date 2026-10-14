@@ -21,7 +21,7 @@ app/                         Android 应用
   src/androidTest/           Android 设备测试
 benchmark/                   Macrobenchmark 与 Profile 采集
 native/ech/                  Go ECH 传输及测试
-gradle/                      工具链、原生构建和许可证生成配置
+gradle/                      工具链、原生构建、许可证与桌面图标生成配置
 scripts/                     PowerShell 构建与发行工具
 docs/                        架构、开发、功能、质量和维护文档
 .github/                     工作流、协作指南与安全政策
@@ -32,7 +32,11 @@ build.ps1                    根目录统一 Gradle 任务入口
 
 根目录保留工程配置、README、许可证、版本号和 `build.ps1`。Debug/Release 快捷打包分别使用 `scripts/build-debug.ps1`、`scripts/build-release.ps1`；协作政策在 `.github/`，正式发布操作在 `docs/maintenance/releasing.md`。
 
-本地原始素材放 `.local/assets/`，工作笔记放 `.local/notes/`；外部参考仓库继续放 `.reference/`。这些目录均被 Git 忽略，不作为构建输入。安装包、日志和验证记录分别放 `outputs/packages/`、`outputs/logs/`、`outputs/qa/<任务>/`，历史材料放 `outputs/archive/`。2026-10-11 整理前平铺在 outputs 根部的材料保存在 `outputs/archive/layout-20261011/`。
+本地原始素材放 `.local/assets/`，其中桌面图标原图放 `.local/assets/launcher-icons/`；工作笔记放 `.local/notes/`，外部参考仓库放 `.reference/`。这些目录均被 Git 忽略，不作为构建输入；参与打包的图标仍放在 `app/launcher-icons/res/`。
+
+安装包、日志和验证记录分别放 `outputs/packages/`、`outputs/logs/`、`outputs/qa/<任务>/`，截图、界面层级 XML 和验证摘要随任务集中保存，不平铺在 outputs 根部或 `.android/`。历史材料放 `outputs/archive/`，一次性旧脚本只作归档，不作为当前构建入口。2026-10-11 整理前平铺的材料保存在 `outputs/archive/layout-20261011/`；早期 Android 截图和脚本分别归入 `outputs/qa/android-legacy/` 与 `outputs/archive/android-scripts/`。
+
+`outputs/preview/`、`outputs/preview-release/`、`outputs/releases/`、`outputs/ci-checks/` 是现有构建或发行脚本约定的输出位置，保持路径稳定。旧日志和测试安装包按需清理，保留仍需追溯的验证记录及对应混淆映射。`outputs/ech-tools/` 是构建使用的 Go 工具链和缓存，`outputs/ech-device/` 包含测试 SDK 与模拟器，`outputs/git-backups/` 保存 Git 备份，不能随普通产物整批清理。
 
 `.gradle/`、`.gradle-home/`、`.kotlin/`、`build/` 等工具目录按既有约定保留，可在编辑器中排除显示。`.android/` 包含固定测试签名，不能作为普通缓存删除。
 
@@ -43,13 +47,14 @@ build.ps1                    根目录统一 Gradle 任务入口
 | [ui/shelf](../../app/src/main/java/cc/novelia/app/ui/shelf) | `AdaptiveLibrary`、`ShelfScreen`、`CloudShelf`、`HistoryScreen`：书架、收藏、历史和分卷 |
 | [ui/discover](../../app/src/main/java/cc/novelia/app/ui/discover) | `DiscoverScreen`、`RankScreen`、`SearchAssistantPanel`、`KeywordLibraryScreen` |
 | [ui/book](../../app/src/main/java/cc/novelia/app/ui/book) | `BookScreen`、`WenkuEditor`、`GlossaryScreen`：详情和资料维护 |
-| [ui/reader](../../app/src/main/java/cc/novelia/app/ui/reader) | `ReaderScreen`、`ReaderPreferences`、`EInkPage`：阅读界面与布局 |
+| [ui/reader](../../app/src/main/java/cc/novelia/app/ui/reader) | `ReaderScreen` 协调阅读会话，`ReaderPositionState` 管布局恢复，`ReaderToolbars`、`ReaderActionSheets`、`ReaderTextParagraph` 管专用界面；完整入口见[阅读器](../features/reader.md) |
 | [ui/community](../../app/src/main/java/cc/novelia/app/ui/community) | 社区列表、文章编辑、论坛回复、守则和处罚记录 |
 | [ui/account](../../app/src/main/java/cc/novelia/app/ui/account) | 个人页、原站/论坛登录及镜像表单 |
 | [ui/settings](../../app/src/main/java/cc/novelia/app/ui/settings) | 设置、恢复、原站同步、WebDAV、网络诊断 |
 | [ui/notes](../../app/src/main/java/cc/novelia/app/ui/notes) | 书签与笔记 |
 | [ui/downloads](../../app/src/main/java/cc/novelia/app/ui/downloads)、[ui/tools](../../app/src/main/java/cc/novelia/app/ui/tools) | 下载管理与文件工具 |
 | [ui/navigation](../../app/src/main/java/cc/novelia/app/ui/navigation) | 控制器、根标签切换、登录续接 |
+| [ui/toolbar](../../app/src/main/java/cc/novelia/app/ui/toolbar) | 跨页面边缘工具栏、定位和偏好设置 |
 | [ui/components/base](../../app/src/main/java/cc/novelia/app/ui/components/base)、[ui/theme](../../app/src/main/java/cc/novelia/app/ui/theme) | 通用控件、容器、弹层、主题和动效 |
 | [ui/components/book](../../app/src/main/java/cc/novelia/app/ui/components/book)、[ui/components/keywords](../../app/src/main/java/cc/novelia/app/ui/components/keywords) | 跨页面复用的书籍展示、同步状态和关键词编辑 |
 | [ui/components/documents](../../app/src/main/java/cc/novelia/app/ui/components/documents)、[ui/components/media](../../app/src/main/java/cc/novelia/app/ui/components/media) | 系统文档交互、导入结果、插图与文字展示 |
@@ -69,7 +74,7 @@ build.ps1                    根目录统一 Gradle 任务入口
 | [data/cache](../../app/src/main/java/cc/novelia/app/data/cache)、[data/chapters](../../app/src/main/java/cc/novelia/app/data/chapters) | 有界缓存、章节请求、离线批次、译文新鲜度 |
 | [data/library](../../app/src/main/java/cc/novelia/app/data/library) | 收藏展示、分卷关系、阅读位置/历史及续读规则 |
 | [data/sync](../../app/src/main/java/cc/novelia/app/data/sync) | 原站云端写入队列和后台重放 |
-| [data/webdav](../../app/src/main/java/cc/novelia/app/data/webdav) | WebDAV 协议、资料投影、冲突合并和调度 |
+| [data/webdav](../../app/src/main/java/cc/novelia/app/data/webdav) | WebDAV 协议、冲突合并和调度；`WebDavProjection` 投影/应用资料，`WebDavSchema` 共享字段规则，`WebDavValidation` 校验候选与记录 |
 | [data/catalog](../../app/src/main/java/cc/novelia/app/data/catalog) | 书源标识、链接、搜索表达式、关键词词典 |
 | [data/updates](../../app/src/main/java/cc/novelia/app/data/updates) | 书籍更新检查、更新状态和系统通知 |
 | [data/appupdate](../../app/src/main/java/cc/novelia/app/data/appupdate) | 应用发行信息、版本检查、APK 下载和安装协调 |
@@ -100,6 +105,6 @@ build.ps1                    根目录统一 Gradle 任务入口
 
 页面和专用组件放所属功能包；通用控件放 `ui/components/base/`，共享业务组件放 `ui/components/` 对应功能子包。模型、I/O 和可独立测试的规则分别靠近对应数据职责。文件名可用 `XxxScreen.kt` 表达独立页面，无需为了每个私有 Composable 拆文件。
 
-JVM 测试在 [app/src/test](../../app/src/test)，按 `data/`、`files/`、`reader/`、`ui/`、`launcher/`、`startup/` 跟随被测职责组织，根包不再平铺测试。设备测试在 [app/src/androidTest](../../app/src/androidTest)，按 `ui/`、`data/`、`integration/`、`performance/` 组织。运行时用文件里的完整 package 和类名，见[测试指南](../quality/testing.md)。
+JVM 测试在 [app/src/test](../../app/src/test)，按 `data/`、`files/`、`reader/`、`ui/`、`launcher/`、`startup/` 跟随被测职责组织，根包不再平铺测试。设备测试在 [app/src/androidTest](../../app/src/androidTest)，按 `ui/`、`data/`、`files/`、`integration/`、`performance/` 等职责组织；文件删除关联测试放 `files/downloads/`，下载导入清理测试放 `files/importing/`。运行时用文件里的完整 package 和类名，见[测试指南](../quality/testing.md)。
 
 移动源码时还要检查导航、Manifest、旧数据引用、Worker 名称和 [Baseline Profile](../quality/baseline-profiles.md) 描述符。移动文档时更新相对链接。

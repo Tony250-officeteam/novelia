@@ -68,16 +68,16 @@ $env:ANDROID_SERIAL = '<专用测试设备序列号>'
 
 全量任务为 `:app:connectedDebugAndroidTest`，包含较耗时的场景；只编译测试包用 `:app:assembleDebugAndroidTest`。编译成功不代表设备测试已运行。
 
-设备测试按 [ui](../../app/src/androidTest/java/cc/novelia/app/ui)、[data](../../app/src/androidTest/java/cc/novelia/app/data)、[integration](../../app/src/androidTest/java/cc/novelia/app/integration) 和 [performance](../../app/src/androidTest/java/cc/novelia/app/performance) 组织。重点入口包括：
+设备测试按 [ui](../../app/src/androidTest/java/cc/novelia/app/ui)、[data](../../app/src/androidTest/java/cc/novelia/app/data)、[files](../../app/src/androidTest/java/cc/novelia/app/files)、[integration](../../app/src/androidTest/java/cc/novelia/app/integration) 和 [performance](../../app/src/androidTest/java/cc/novelia/app/performance) 等职责组织。重点入口包括：
 
 - 导航和双栏：`RootNavigationTest`、`AdaptiveLibraryTest`。
 - 边缘工具栏：`EdgeToolbarTest`，覆盖闲置后单击展开、拖动保存、跨页面及临时隐藏时保留位置和闲置计时；`ReaderToolbarOverlayTest` 额外验证阅读菜单、系统状态栏和历史页切换不挪动圆点。
-- 正文和手势：`ReaderAdaptiveUiTest`、`ReaderToolbarOverlayTest`、`ReaderTapNavigationTest`。
+- 正文和手势：`ReaderAdaptiveUiTest`、`ReaderToolbarOverlayTest`、`ReaderTapNavigationTest`、`ReaderSpacingTest`；位置恢复与阅读返回另看 `ReadingContinuityUiTest`、`ReaderCompletionFlowTest`。阅读器组件拆分仍需覆盖工具栏开关不改变正文视口、滚动/分页互换保留锚点、后台再前台及段落测量。
 - 论坛与编辑：`ForumEditorUiTest`、`ForumCommentThreadTest`、`EditorDraftLifecycleTest`。
 - 会话：`NativeLoginSessionTest`、`MirrorSessionTest`、`ForumMirrorSessionTest`、`ForumSessionIsolationTest`、`ForumSharedAuthTest`；原生登录界面另见 `integration.AuthPageTest`、`ui.account.ForumMirrorLoginTest` 和 `ui.settings.BookSourceNavigationTest`。
 - Android 平台解析：`ForumCommunityRulesParserAndroidTest`。
-- 文件/恢复：`BookExportUiTest`、`LibraryBackupFlowTest`。
-- 静态交互：`EInkReaderFlowTest`、`ReducedMotionSheetTest`、`PanelSessionTest`。
+- 文件/恢复：`BookExportUiTest`、`LibraryBackupFlowTest`、`files.downloads.BookFileActionsTest`、`files.importing.DownloadImportCleanupTest`；书架移除时的持久化清理仍由 `data.storage.ShelfCopyCleanupTest` 覆盖。
+- 静态交互：`EInkReaderFlowTest`、`ReducedMotionSheetTest`、`PanelSessionTest`。`EInkReaderFlowTest` 同时覆盖物理按键、滚动/分页锚点互换、搜索与重新进入阅读；离开阅读器后按现有“阅读与朗读”“外观与操作”分类检查设置。
 
 直接使用 instrumentation 时 runner 为 `cc.novelia.app.test/androidx.test.runner.AndroidJUnitRunner`。测试中止、`INSTRUMENTATION_FAILED` 和跳过都不能记作通过。
 

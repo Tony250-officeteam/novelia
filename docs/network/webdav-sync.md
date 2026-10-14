@@ -78,6 +78,8 @@ WebDAV 用用户自己的 HTTPS 服务，在设备之间合并选定的阅读资
 
 ## 回归入口
 
+投影与应用入口保留在 [WebDavProjection.kt](../../app/src/main/java/cc/novelia/app/data/webdav/WebDavProjection.kt)；[WebDavSchema.kt](../../app/src/main/java/cc/novelia/app/data/webdav/WebDavSchema.kt) 集中记录前缀、字段集合及共享键规则，[WebDavValidation.kt](../../app/src/main/java/cc/novelia/app/data/webdav/WebDavValidation.kt) 校验键、字段值、全部并发候选和完整记录。原有调用仍通过 `WebDavProjection` 的校验入口委托，协议版本、序列化格式、限制和错误信息保持不变。新增同步字段时需同时核对投影、共享字段集合与校验规则。
+
 合并和投影看 `WebDavMergeTest`、`WebDavProjectionTest`；交换与落盘顺序看 `WebDavExchangeTest`；协议看 `WebDavClientTest`、`WebDavPropertiesTest`、`WebDavNutcloudCompatibilityTest`；载荷校验看 `WebDavPayloadTest`。位于 [WebDAV JVM 测试](../../app/src/test/java/cc/novelia/app/data/webdav)。
 
 [WebDavLayoutTest](../../app/src/androidTest/java/cc/novelia/app/ui/settings/WebDavLayoutTest.kt) 使用虚拟配置检查 UI。真实服务兼容、Keystore 和后台休眠行为需在对应环境验收，本轮文档核对不代表重新通过这些测试。

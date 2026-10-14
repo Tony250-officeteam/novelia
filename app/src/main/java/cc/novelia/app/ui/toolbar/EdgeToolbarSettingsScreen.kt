@@ -52,7 +52,6 @@ internal val edgeShortcuts = listOf(
             item { ProfileSectionTitle("显示方式") }
             item { ProfileChoiceRow("阅读时显示", listOf("跟随阅读菜单", "始终隐藏", "始终显示"), EdgeToolbarSettings.READER_VISIBILITY.indexOf(settings.readerVisibility)) { index -> update { it.copy(readerVisibility = EdgeToolbarSettings.READER_VISIBILITY[index]) } } }
             item { ProfileToggle("显示下载任务数量", "展开后显示等待和下载中的任务数量", settings.downloadBadge) { value -> update { it.copy(downloadBadge = value) } } }
-            item { ProfileSummary("圆点的操作方式", "点击打开快捷入口，直接上下拖动调整高度，松手后自动保存。闲置后只露出半圆，再次点击即可展开。键盘、弹窗或编辑页面出现时暂时隐藏。电子纸保持不透明，减少动效时不播放滑入动画。") }
             item { ProfileMenuRow("恢复工具栏默认配置", "重置入口、位置和显示方式", Icons.Outlined.Restore, { reset = true }) }
         }
     }
