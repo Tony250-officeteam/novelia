@@ -13,7 +13,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import cc.novelia.app.data.community.ForumLinks
 import cc.novelia.app.data.network.encodeSegment
 import cc.novelia.app.ui.components.base.AppAlertDialog
 import cc.novelia.app.ui.components.base.AppLazyColumn
@@ -29,7 +28,7 @@ import cc.novelia.app.ui.navigation.AppController
         Text("帖子草稿箱", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
         AppTextButton(onClick = onClose) { Text("关闭") }
     }
-    Text("新帖和已发布帖子的修改草稿都保存在此设备，旧站与论坛的草稿分别续写。", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall)
+    Text("新帖和修改草稿保存在此设备。旧站草稿按新帖续写，发布前需重新选择分类。", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall)
     AppFilledTonalButton(onClick = { onClose(); c.go("compose") }, Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
         Icon(Icons.Outlined.Add, null, Modifier.size(18.dp)); Text(" 新建草稿")
     }
@@ -37,7 +36,7 @@ import cc.novelia.app.ui.navigation.AppController
         if(drafts.isEmpty()) item { EmptyState("还没有帖子草稿", "新建帖子或修改已发布的帖子，输入会自动保存。", Icons.Outlined.Drafts) }
         items(drafts, key = { it.key }) { draft ->
             val articleId = ArticleDrafts.editedArticleId(draft.key)
-            val source = if(ArticleDrafts.isForumNewPostKey(draft.key) || articleId?.let(ForumLinks::postId) != null) "论坛" else "旧站 · ${categories[draft.category]}"
+            val source = if(ArticleDrafts.isForumNewPostKey(draft.key) || articleId != null) "论坛" else "恢复的旧草稿"
             val kind = if(articleId == null) "新帖" else "修改已发布帖子"
             MenuRow(draft.displayTitle, "$source · $kind · ${draft.content.length} 字 · 点击续写", Icons.Outlined.Description,
                 { onClose(); c.go(if(articleId == null) "compose?draft=${encodeSegment(draft.key)}" else "compose?article=${encodeSegment(articleId)}") },

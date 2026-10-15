@@ -9,7 +9,7 @@ import kotlinx.serialization.Serializable
     val blocks: List<ForumRuleBlock>, val entryPath: String = "", val commitSha: String = ""
 )
 
-/** 2026-10-04 部署 36f8894 的离线副本；内容与该部署守则解析结果一致。 */
+/** 2026-10-15 核对部署 6bae949 的离线副本；内容与该部署守则解析结果一致。 */
 internal val bundledForumCommunityRules = ForumCommunityRules(listOf(
     ForumRuleBlock("社区守则", heading = true),
     ForumRuleBlock("违规处理", heading = true),
@@ -24,12 +24,12 @@ internal val bundledForumCommunityRules = ForumCommunityRules(listOf(
     ForumRuleBlock("对于以二战或者现实战争为核心内容，涉及法西斯、反战败元素的小说，请用QQ或者Telegram私信管理员，符合标准会屏蔽。不要在论坛发帖，或者在群里讨论。"),
     ForumRuleBlock("不要特地去找这种小说，也不要截图到处传播。不要在机翻站建政。无论你觉得你的观点多么正义，也要挑选说话的场合。冲到电影院大喊1+1=2以至于被保安拖了出去，不是因为大家不认同你的观点，是你是个SB。"),
     ForumRuleBlock("用户权限", heading = true),
-    ForumRuleBlock("站点 · 操作 · 普通用户 未满月 · 普通用户 已满月 · 受限用户", table = ForumRuleTable(
-        listOf("站点", "操作", "普通用户 未满月", "普通用户 已满月", "受限用户"), listOf(
+    ForumRuleBlock("站点 · 操作 · 普通用户 未满30天 · 普通用户 满30天 · 受限用户", table = ForumRuleTable(
+        listOf("站点", "操作", "普通用户 未满30天", "普通用户 满30天", "受限用户"), listOf(
             ForumRulePermission("论坛", "管理帖子收藏", listOf(true, true, true)),
             ForumRulePermission("论坛", "发表、编辑帖子", listOf(true, true, false)),
-            ForumRulePermission("论坛", "发表、编辑评论", listOf(true, true, false)),
-            ForumRulePermission("小说", "发表、编辑评论", listOf(false, true, false)),
+            ForumRulePermission("论坛", "发表评论", listOf(false, true, false)),
+            ForumRulePermission("小说", "发表评论", listOf(false, true, false)),
             ForumRulePermission("小说", "管理小说收藏", listOf(true, true, true)),
             ForumRulePermission("小说", "更新网页小说", listOf(false, true, false)),
             ForumRulePermission("小说", "编辑网页小说", listOf(false, true, false)),

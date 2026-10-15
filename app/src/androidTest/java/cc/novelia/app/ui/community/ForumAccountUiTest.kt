@@ -47,15 +47,26 @@ class ForumAccountUiTest {
         compose.runOnIdle { assertEquals(2, actions.size) }
     }
 
-    @Test fun sortPickerSelectsAllFourPresets() {
-        var sort by mutableStateOf(ForumSort.ACTIVE)
+    @Test fun sortPickerHidesNewestAndRestoresItAsActive() {
+        var sort by mutableStateOf(ForumSort.NEWEST)
         compose.setContent { NoveliaTheme("light") { Box(Modifier.padding(top = 48.dp)) { ForumSortPicker(sort) { sort = it } } } }
-        for(option in listOf(ForumSort.NEWEST, ForumSort.VIEWS, ForumSort.COMMENTS, ForumSort.ACTIVE)) {
+        compose.onNodeWithTag("forum-sort").assertTextContains(ForumSort.ACTIVE.label)
+        for(option in listOf(ForumSort.UPDATED, ForumSort.VIEWS, ForumSort.COMMENTS, ForumSort.ACTIVE)) {
             compose.onNodeWithTag("forum-sort").performClick()
+            compose.onNodeWithText("最新发布").assertDoesNotExist()
             compose.onNodeWithText(option.label).performClick()
             compose.runOnIdle { assertEquals(option, sort) }
             compose.onNodeWithTag("forum-sort").assertTextContains(option.label)
         }
+    }
+
+    @Test fun accountBlacklistEntryClosesTheMenuAndDispatchesItsOwnAction() {
+        var action: ForumAccountAction? = null
+        compose.setContent { NoveliaTheme("light") { PanelScene(profile) { action = it } } }
+        compose.onNodeWithTag("forum-account-toggle").performClick()
+        compose.onNodeWithText("账号黑名单").performScrollTo().performClick()
+        compose.onNodeWithTag("forum-account-panel").assertDoesNotExist()
+        compose.runOnIdle { assertEquals(ForumAccountAction.BLACKLIST, action) }
     }
 
     @Test fun panelWorksInBothThemesAndLargeTextWithReducedMotion() {

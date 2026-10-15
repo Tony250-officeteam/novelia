@@ -76,7 +76,7 @@ internal data class ForumReplyFocus(val rootId: Long, val page: Int, val comment
                 refreshKey = version, load = { replyPages.load(root.id, page) { loadReplies(page) } }, onLoaded = onPageLoaded,
                 modifier = Modifier.padding(start = 16.dp).testTag("forum-replies-${root.id}")) { replies, _ ->
                 Column(Modifier.fillMaxWidth()) {
-                    replies.items.filter { it.authorUsername !in blockedUsers }.forEach { reply ->
+                    replies.items.filter { !it.authorBlocked && it.authorUsername !in blockedUsers }.forEach { reply ->
                         key(reply.id) { render(reply, root.status == 0, null) }
                     }
                     if(replies.items.isEmpty()) Text("暂无回复", Modifier.padding(12.dp))

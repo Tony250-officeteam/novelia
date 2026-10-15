@@ -66,8 +66,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
     var version by remember(discussionKey) { mutableIntStateOf(0) }
     // 保留在列表层，LazyColumn 回收单条评论时不会丢失计数；刷新、换账号或角色时失效。
     val binding = session.capture()
-    val replyCounts = remember(discussionKey, binding, profile?.role, version) { mutableStateMapOf<Long, Long?>() }
-    var countsRevision by remember(discussionKey, binding, profile?.role, version) { mutableIntStateOf(0) }
+    val blacklistRevision by c.app.forumBlacklistRevision.collectAsStateWithLifecycle()
+    val replyCounts = remember(discussionKey, binding, profile?.role, version, blacklistRevision) { mutableStateMapOf<Long, Long?>() }
+    var countsRevision by remember(discussionKey, binding, profile?.role, version, blacklistRevision) { mutableIntStateOf(0) }
     var rootId by rememberSaveable(discussionKey, viewerKey) { mutableStateOf<Long?>(null) }
     var replyCount by rememberSaveable(discussionKey, viewerKey) { mutableLongStateOf(0) }
     var replyFocus by remember(discussionKey, binding, profile?.role) { mutableStateOf<ForumReplyFocus?>(null) }
@@ -81,15 +82,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
     // 同时保护主评论和展开回复中的页码输入，编辑器收起或讨论锁定时也生效。
     Box(Modifier.fillMaxSize().imePadding()) {
     Column(Modifier.fillMaxSize()) {
-        AsyncContent(listOf(discussionKey, page, binding, profile?.role), refreshKey = version, load = {
+        AsyncContent(listOf(discussionKey, page, binding, profile?.role, blacklistRevision), refreshKey = version, load = {
             session.ensureCurrent(binding)
             discussion.comments(page).also { session.ensureCurrent(binding) }
         },
             onLoaded = { replyCounts.clear(); countsRevision++ }, modifier = Modifier.weight(1f)) { result, _ ->
             // 在讨论串首次组合之前初始化，避免展开时先发请求再填入首屏数据。
-            val replyPages = rememberForumReplyPages(discussionKey, binding, profile?.role, version, countsRevision,
+            val replyPages = rememberForumReplyPages(discussionKey, listOf(binding, blacklistRevision), profile?.role, version, countsRevision,
                 initialRoots = result.items)
-            val comments = result.items.filter { it.authorUsername !in state.blockedUsers }
+            val comments = result.items.filter { !it.authorBlocked && it.authorUsername !in state.blockedUsers }
             LaunchedEffect(result.items, version, countsRevision, state.blockedUsers) {
                 try {
                     loadForumReplyCounts(comments.filterNot { replyCounts.containsKey(it.id) },
@@ -117,7 +118,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
                         ForumCommentRow(comment, profile, locked || !rootPublished,
                             onReply = { editing = null; rootId = comment.replyRoot; replyCount = replyCounts[root.id] ?: root.replyCount ?: 0; composerExpanded = true },
                             onEdit = { editing = comment; rootId = null; composerExpanded = true }, onDelete = { deleting = comment },
-                            onBlock = { c.store.update { it.copy(blockedUsers = it.blockedUsers + comment.authorUsername) } }, extraAction = replyToggle) {
+                            onBlock = { c.store.update { it.copy(blockedUsers = it.blockedUsers + comment.authorUsername) } },
+                            accountBlockAction = if(profile == null) null else { {
+                                ForumBlacklistAction(c, session, discussion.blacklist, comment.authorId,
+                                    comment.authorUsername, comment.authorBlocked)
+                            } }, extraAction = replyToggle) {
                             MarkdownText(c, it, renderer = renderer, documentUrl = documentUrl)
                         }
                     }
@@ -131,7 +136,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
         Column(Modifier.fillMaxWidth().padding(12.dp)) {
             val commentContent = text.trim()
             val commentError = ForumRules.contentError(commentContent, comment = true)
-            val canSend = profile == null || ForumRules.canWrite(profile)
+            val commentNow = rememberForumCommentTime(profile)
+            val canSend = profile == null || if(editing == null) ForumRules.canCreateComment(profile, commentNow) else ForumRules.canWrite(profile)
             val editNow = rememberForumModificationTime(editing?.createdEpoch ?: 0)
             val canEditDraft = editing?.canModify(profile, editNow) != false
             if(rootId != null || editing != null) Row {
@@ -144,6 +150,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
                     val submittedText = text; val content = submittedText.trim(); val submittedRoot = rootId; val submittedReplyCount = replyCount; val submittedEdit = editing; val submittedDraft = draftKey
                     requireLogin { c.action {
                         require(ForumRules.canWrite(session.profile.value)) { "当前账号暂不具备评论权限，草稿已保留" }
+                        require(submittedEdit != null || ForumRules.canCreateComment(session.profile.value)) { "注册满 30 天后才能发表评论，草稿已保留" }
                         require(submittedEdit == null || submittedEdit.canModify(session.profile.value)) { "评论只能在发布后 20 分钟内修改，管理员不受此限制。草稿已保留" }
                         sending = true
                         try {
@@ -163,7 +170,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
             Text("${ForumRules.length(commentContent)} / ${ForumRules.COMMENT_LIMIT}", style = MaterialTheme.typography.bodySmall,
                 color = if(commentError != null && commentContent.isNotEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
             if(commentError != null && commentContent.isNotEmpty()) Text(commentError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-            if(!canSend) Text("当前账号暂不具备评论权限，草稿会保存在此设备。", style = MaterialTheme.typography.bodySmall)
+            if(!canSend) Text(if(editing == null && ForumRules.canWrite(profile))
+                "注册满 30 天后才能发表评论（${displayDate(profile!!.createdAt + ForumRules.COMMENT_ACCOUNT_AGE_SECONDS)}），草稿会保存在此设备。"
+                else "当前账号暂不具备评论权限，草稿会保存在此设备。", style = MaterialTheme.typography.bodySmall)
             if(!canEditDraft) Text("评论修改时限已过，草稿已保留。", style = MaterialTheme.typography.bodySmall)
         }
         }
@@ -182,6 +191,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 @Composable internal fun ForumCommentRow(comment: ForumComment, profile: Profile?, locked: Boolean,
     onReply: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit, onBlock: () -> Unit,
     extraAction: (@Composable () -> Unit)? = null,
+    accountBlockAction: (@Composable () -> Unit)? = null,
     render: @Composable (String) -> Unit) {
     val now = rememberForumModificationTime(comment.createdEpoch)
     Column(Modifier.padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -193,7 +203,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
             if(comment.status == 0 && comment.canModify(profile, now)) {
                 if(ForumRules.canWrite(profile)) AppTextButton(onClick = onEdit) { Text("编辑") }
                 AppTextButton(onClick = onDelete) { Text("删除") }
-            } else if(comment.authorId != profile?.userId) AppTextButton(onClick = onBlock) { Text("屏蔽用户") }
+            }
+            if(comment.authorId != profile?.userId) {
+                if(accountBlockAction != null) accountBlockAction()
+                else AppTextButton(onClick = onBlock) { Text("本地屏蔽") }
+            }
             extraAction?.invoke()
         }
     }

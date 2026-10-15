@@ -5,6 +5,7 @@ package cc.novelia.app.data.community
 /** 共用讨论界面，资源路径和登录目标仍由对应 API 决定。 */
 internal interface CommentDiscussion {
     val key: String
+    val blacklist: ForumBlacklistApi
     suspend fun comments(page: Int): ForumPage<ForumComment>
     suspend fun replies(rootId: Long, page: Int): ForumPage<ForumComment>
     suspend fun replyCount(rootId: Long): Long
@@ -15,6 +16,7 @@ internal interface CommentDiscussion {
 
 internal fun ForumApi.discussion(postId: Long): CommentDiscussion = object : CommentDiscussion {
     override val key = "forum-comment:$postId"
+    override val blacklist get() = this@discussion.blacklist
     override suspend fun comments(page: Int) = comments(postId, page)
     override suspend fun replies(rootId: Long, page: Int) = replies(postId, rootId, page)
     override suspend fun replyCount(rootId: Long) = replyCount(postId, rootId)
@@ -25,6 +27,7 @@ internal fun ForumApi.discussion(postId: Long): CommentDiscussion = object : Com
 
 internal fun NovelCommentApi.discussion(subjectKey: String): CommentDiscussion = object : CommentDiscussion {
     override val key = "novel-comment:$subjectKey"
+    override val blacklist get() = this@discussion.blacklist
     override suspend fun comments(page: Int) = comments(subjectKey, page)
     override suspend fun replies(rootId: Long, page: Int) = replies(subjectKey, rootId, page)
     override suspend fun replyCount(rootId: Long) = replyCount(subjectKey, rootId)

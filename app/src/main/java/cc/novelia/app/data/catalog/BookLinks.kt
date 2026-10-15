@@ -26,7 +26,6 @@ object BookLinks {
             "n.novelia.cc" -> if (!SiteUrls.isInternal(uri)) null else when(path.firstOrNull()) {
                 "novel" -> if(path.getOrNull(1) in providers) book(path[1], path.getOrNull(2), path.getOrNull(3)) else null
                 "wenku" -> book("wenku", path.getOrNull(1))
-                "forum" -> path.getOrNull(1)?.takeIf { it.matches(Regex("[a-zA-Z0-9]+")) }?.let { SiteLink.Post(it) }
                 else -> null
             }
             "kakuyomu.jp" -> if(path.firstOrNull() == "works") book("kakuyomu", path.getOrNull(1)) else null

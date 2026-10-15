@@ -20,6 +20,15 @@ import cc.novelia.app.data.network.ApiException
 import cc.novelia.app.data.network.NoveliaApi
 
 class ForumApiContractTest {
+    @Test fun authorBlockedPreservesViewerStateAndOlderResponsesDefaultToFalse() {
+        val articleJson = post.dropLast(1) + ",\"authorBlocked\":true}"
+        val blockedPost = appJson.decodeFromString<ForumPost>(articleJson)
+        assertTrue(blockedPost.authorBlocked)
+        assertTrue(blockedPost.article(emptyList()).forumAuthorBlocked)
+        assertFalse(appJson.decodeFromString<ForumPost>(post).authorBlocked)
+        assertTrue(appJson.decodeFromString<ForumComment>(comment.dropLast(1) + ",\"authorBlocked\":true}").authorBlocked)
+        assertFalse(appJson.decodeFromString<ForumComment>(comment).authorBlocked)
+    }
     private val post = """{"id":9007199254740993,"categoryId":7,"title":"测试帖子","authorId":42,"authorUsername":"读者","status":0,"viewsCount":3,"commentsCount":21,"commentsLocked":true,"pinOrder":0,"favorited":true,"createdAt":"2026-09-14T18:31:15.123456Z","updatedAt":"2026-09-15T02:31:15+08:00","activeAt":"2026-09-14T18:31:15Z","tags":[{"id":9,"name":"讨论","color":2}],"content":"# 正文"}"""
     private val comment = """{"id":12,"postId":9007199254740993,"rootId":8,"content":"回复","authorId":42,"authorUsername":"读者","status":0,"createdAt":"2026-09-14T18:31:15Z","updatedAt":"2026-09-14T18:31:15Z"}"""
     private fun api(server: MockWebServer, session: ApiSession? = null) = ForumApi(NoveliaApi(session, server.url("/api/v1/").toString()))
@@ -360,20 +369,18 @@ class ForumApiContractTest {
         }
     }
 
-    @Test fun legacyArticlesAndNewLinksKeepSeparateIdentities() {
-        val old = appJson.decodeFromString<Article>("""{"id":"abc123","category":"General","title":"旧文章"}""")
-        assertNull(old.forumCategoryId)
-        assertEquals(old, appJson.decodeFromString<Article>(appJson.encodeToString(old)))
+    @Test fun onlyCurrentForumPostsUseNativeArticleRoutes() {
         assertEquals(SiteLink.Post("f-123"), BookLinks.parse("https://forum.novelia.cc/p/123"))
-        assertEquals(SiteLink.Post("abc123"), BookLinks.parse("https://n.novelia.cc/forum/abc123"))
+        assertNull(BookLinks.parse("https://n.novelia.cc/forum/abc123"))
         assertNull(BookLinks.parse("https://forum.novelia.cc/p/123/edit"))
         assertNull(BookLinks.parse("https://forum.novelia.cc/p/0"))
         assertNull(BookLinks.parse("https://forum.novelia.cc.evil.test/p/123"))
         assertEquals("article/f-123", MarkdownLinks.nativeRoute("https://forum.novelia.cc/p/123"))
         assertNull(MarkdownLinks.nativeRoute("https://forum.novelia.cc/p/123#comment-8"))
         assertNull(MarkdownLinks.nativeRoute("https://forum.novelia.cc/c/guide?page=2"))
-        assertEquals("https://forum.novelia.cc/p/123", MarkdownLinks.commentDocumentUrl("article-f-123"))
+        assertNull(MarkdownLinks.commentDocumentUrl("article-f-123"))
         assertEquals("https://forum.novelia.cc/p/456", MarkdownLinks.resolve("/p/456", "https://forum.novelia.cc/p/123"))
-        assertEquals("https://n.novelia.cc/forum/abc123", ForumLinks.articleUrl(old.id))
+        assertEquals("https://forum.novelia.cc/p/123", ForumLinks.articleUrl("f-123"))
+        assertTrue(runCatching { ForumLinks.articleUrl("abc123") }.exceptionOrNull() is IllegalArgumentException)
     }
 }

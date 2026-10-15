@@ -16,6 +16,10 @@ internal fun markdownLinkForPaste(text: String, start: Int, end: Int, clipboard:
     if((!pasted.startsWith("https://", true) && !pasted.startsWith("http://", true)) ||
         pasted.any { it.isWhitespace() || it.isISOControl() }) return null
     val url = pasted.toHttpUrlOrNull() ?: return null
+    // 选区本身是网址时沿用原生替换，避免生成 [旧网址](新网址)。
+    val selectedUrl = selection.trim()
+    if((selectedUrl.startsWith("https://", true) || selectedUrl.startsWith("http://", true)) &&
+        selectedUrl.none { it.isWhitespace() || it.isISOControl() } && selectedUrl.toHttpUrlOrNull() != null) return null
     val label = buildString {
         selection.forEach { if(it == '\\' || it == '[' || it == ']') append('\\'); append(it) }
     }

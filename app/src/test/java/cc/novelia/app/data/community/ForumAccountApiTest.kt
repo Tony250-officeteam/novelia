@@ -34,10 +34,12 @@ class ForumAccountApiTest {
         override suspend fun refreshIfCurrent(binding: SessionBinding, previousToken: String?) = false
         fun changeAccount() = state.replace("synthetic-next-session", Profile("另一账号", "member", 0, Long.MAX_VALUE, 43))
     }
-    @Test fun allFourPresetsSendTheServerSortValueAndPreserveFilters() = runBlocking {
+    @Test fun allSortPresetsSendTheServerSortValueAndPreserveFilters() = runBlocking {
         MockWebServer().use { server ->
             val api = ForumApi(NoveliaApi(null, server.url("/api/v1/").toString()))
-            assertEquals(listOf("最近活跃", "最新发布", "浏览最多", "评论最多"), ForumSort.entries.map { it.label })
+            assertEquals(listOf("最近活跃", "最新更新", "最新发布", "浏览最多", "评论最多"), ForumSort.entries.map { it.label })
+            assertEquals(listOf("active", "updated", "views", "comments"), ForumSort.visibleEntries.map { it.apiValue })
+            assertEquals(ForumSort.ACTIVE, ForumSort.NEWEST.visibleSort)
             for(sort in ForumSort.entries) {
                 server.enqueue(MockResponse().setBody("""{"total":0,"items":[]}"""))
                 api.posts(0, "guide", "检索", sort.apiValue)

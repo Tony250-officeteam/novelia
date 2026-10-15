@@ -171,7 +171,7 @@ class ForumEditorUiTest {
     private fun withEditor(article: Article?, noticeDismissed: Boolean = false, savedDraft: String? = null, startInDraftBox: Boolean = false, check: () -> Unit) {
         val app = compose.activity.application as NoveliaApplication
         runBlocking { app.initialization.await() }
-        val key = article?.let { "article:${it.id}" } ?: ArticleDrafts.newKey(true)
+        val key = article?.let { "article:${it.id}" } ?: ArticleDrafts.newKey()
         val previous = app.store.state.value.drafts[key]
         val previousNoticeDismissed = app.store.state.value.forumRulesReminderDismissed
         try {
@@ -182,7 +182,7 @@ class ForumEditorUiTest {
                         val c = AppController(app, rememberNavController(), rememberCoroutineScope(), remember { SnackbarHostState() })
                         var draftBox by remember { mutableStateOf(startInDraftBox) }
                         if(draftBox) Column { ArticleDraftBox(c) { draftBox = false } }
-                        else ArticleEditor(c, article, categories, forum = true, newPostKey = key)
+                        else ArticleEditor(c, article, categories, newPostKey = key)
                     }
                 }
             }

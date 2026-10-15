@@ -69,6 +69,7 @@ import cc.novelia.app.ui.theme.motionClickable
     }
     val profile by c.forumSession.profile.collectAsStateWithLifecycle()
     val forumBinding = c.forumSession.capture()
+    val blacklistRevision by c.app.forumBlacklistRevision.collectAsStateWithLifecycle()
     var hasUnreadStrikes by remember(forumBinding) { mutableStateOf(false) }
     var attentionRefresh by remember { mutableIntStateOf(0) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -94,6 +95,7 @@ import cc.novelia.app.ui.theme.motionClickable
                 ForumAccountAction.LOGIN -> c.go("forum-login")
                 ForumAccountAction.POSTS -> c.requireForumLogin { showFeed(2) }
                 ForumAccountAction.FAVORITES -> c.requireForumLogin { showFeed(1) }
+                ForumAccountAction.BLACKLIST -> c.requireForumLogin { c.go("forum-blacklist") }
                 ForumAccountAction.STRIKES -> c.requireForumLogin { c.go("forum-strikes") }
                 ForumAccountAction.RULES -> c.go("forum-rules")
                 ForumAccountAction.LOGOUT -> c.action("已退出论坛登录") { c.forumSession.logout(); showFeed(0) }
@@ -117,11 +119,11 @@ import cc.novelia.app.ui.theme.motionClickable
             }
             val settledSearch = rememberDebouncedQuery(search)
             MotionContent(listOf(category, source), Modifier.weight(1f), animateInitial = false) {
-                AsyncContent(listOf(category, page, settledSearch, source, sort, selectedTagId, forumBinding, profile?.role), load = {
-                    when(source) { 1 -> c.forumApi.favorites(page); 2 -> c.forumApi.myPosts(page); else -> c.forumApi.posts(page, category, settledSearch, sort.apiValue, listOfNotNull(selectedTagId)) }
+                AsyncContent(listOf(category, page, settledSearch, source, sort, selectedTagId, forumBinding, profile?.role, blacklistRevision), load = {
+                    when(source) { 1 -> c.forumApi.favorites(page); 2 -> c.forumApi.myPosts(page); else -> c.forumApi.posts(page, category, settledSearch, sort.visibleSort.apiValue, listOfNotNull(selectedTagId)) }
                 }, revealContent = true) { result, _ ->
                     val articles = remember(result.items, settledSearch, source, selectedTagId, state.blockedUsers, available) {
-                        result.items.filter { (source == 0 || it.title.contains(settledSearch, true)) && it.authorUsername !in state.blockedUsers }
+                        result.items.filter { (source == 0 || it.title.contains(settledSearch, true)) && !it.authorBlocked && it.authorUsername !in state.blockedUsers }
                             .map { it.article(available, if(source == 0) selectedTagId else null) }
                     }
                     ArticleList(c, Page(result.pageCount(), articles), page, { page = it })
@@ -138,11 +140,11 @@ import cc.novelia.app.ui.theme.motionClickable
         items(result.items, key = { it.id }, contentType = { "article" }) { article ->
             Column(if(reducedMotion) Modifier else Modifier.animateItem(fadeInSpec = tween(AppMotion.Quick), placementSpec = tween(AppMotion.Standard), fadeOutSpec = tween(AppMotion.Exit))) {
                 Column(Modifier.fillMaxWidth().motionClickable { c.go("article/${article.id}") }.padding(horizontal = 20.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) { if(article.pinned) Icon(Icons.Outlined.PushPin, "置顶", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary); Text(categories[article.category] ?: article.category, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium); if(article.locked) Icon(Icons.Outlined.Lock, "已锁定", Modifier.size(14.dp)); if(article.hidden) Text("已隐藏", style = MaterialTheme.typography.labelMedium) }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) { if(article.pinned) Icon(Icons.Outlined.PushPin, "置顶", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary); Text(article.category, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium); if(article.locked) Icon(Icons.Outlined.Lock, "已锁定", Modifier.size(14.dp)); if(article.hidden) Text("已隐藏", style = MaterialTheme.typography.labelMedium) }
                     Text(article.title, style = MaterialTheme.typography.titleMedium)
                     ForumTagBadges(article.forumTags)
                     FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("${article.user.username} · ${displayDate(article.createAt)}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("${article.user.username} · ${displayDate(article.updateAt.takeIf { it > 0 } ?: article.createAt)}${if(article.updateAt > article.createAt) " 更新" else ""}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("${article.numComments} 评论 · ${article.numViews} 查看", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }

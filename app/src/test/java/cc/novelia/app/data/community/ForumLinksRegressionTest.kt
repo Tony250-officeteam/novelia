@@ -17,6 +17,9 @@ import org.junit.Test
 class ForumLinksRegressionTest {
     @Test fun forumRulesUseNativePageAndPreserveOtherWebRoutes() {
         assertEquals("forum-rules", MarkdownLinks.nativeRoute("https://forum.novelia.cc/rules"))
+        assertEquals("forum-blacklist", MarkdownLinks.nativeRoute("https://forum.novelia.cc/settings/blacklist"))
+        assertEquals("forum-blacklist", MarkdownLinks.nativeRoute("https://forum.novelia.cc/settings/"))
+        assertNull(MarkdownLinks.nativeRoute("https://forum.novelia.cc/settings/blacklist?preview=true"))
         assertEquals("forum-rules", MarkdownLinks.nativeRoute("https://FORUM.NOVELIA.CC:443/rules/"))
         assertNull(MarkdownLinks.nativeRoute("https://forum.novelia.cc/rules#section"))
         assertNull(MarkdownLinks.nativeRoute("https://forum.novelia.cc/rules?preview=true"))
@@ -68,7 +71,7 @@ class ForumLinksRegressionTest {
         assertEquals(SiteLink.Book(BookRef("syosetu", "n1110gn"), "5"), BookLinks.parse("HTTP://BOOKS.FISHHAWK.TOP:80/novel/syosetu/n1110gn/5"))
         assertEquals("reader/syosetu/n1110gn/5", MarkdownLinks.nativeRoute("//books.fishhawk.top/novel/syosetu/n1110gn/5"))
         assertEquals("book/wenku/abc123", MarkdownLinks.nativeRoute("https://books.fishhawk.top/wenku/abc123"))
-        assertEquals("article/675590fcca0084226562ac36", MarkdownLinks.nativeRoute("https://books.fishhawk.top/forum/675590fcca0084226562ac36"))
+        assertNull(MarkdownLinks.nativeRoute("https://books.fishhawk.top/forum/675590fcca0084226562ac36"))
     }
 
     @Test fun legacyWebFallbackPreservesEncodedQueriesAndAnchors() {

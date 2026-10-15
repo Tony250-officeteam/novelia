@@ -75,4 +75,20 @@ class ForumRulesTest {
         assertFalse(comment.canModify(member, comment.createdEpoch + 1200))
         assertTrue(comment.canModify(admin, comment.createdEpoch + 86400))
     }
+
+    @Test fun newCommentsRequireThirtyDaysForEveryWritingRoleButPostAndEditRulesStaySeparate() {
+        val registered = 1700000000L
+        val deadline = registered + ForumRules.COMMENT_ACCOUNT_AGE_SECONDS
+        for(role in listOf("member", "trusted", "admin")) {
+            val author = member.copy(role = role, createdAt = registered)
+            assertFalse(ForumRules.canCreateComment(author, deadline - 1))
+            assertTrue(ForumRules.canCreateComment(author, deadline))
+            assertFalse(ForumRules.canCreateComment(author, registered - 1))
+            assertTrue(ForumRules.canEditPost(article, author))
+            assertTrue(ForumRules.canPublish(ForumCategory(100, "novel"), author))
+        }
+        for(role in listOf("restricted", "banned", "unknown"))
+            assertFalse(ForumRules.canCreateComment(member.copy(role = role, createdAt = registered), deadline))
+        assertFalse(ForumRules.canCreateComment(null, deadline))
+    }
 }

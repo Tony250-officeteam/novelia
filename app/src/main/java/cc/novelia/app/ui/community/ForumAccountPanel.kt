@@ -40,7 +40,7 @@ import androidx.compose.ui.window.PopupProperties
 import cc.novelia.app.data.community.ForumSort
 import cc.novelia.app.data.model.Profile
 
-internal enum class ForumAccountAction { LOGIN, POSTS, FAVORITES, STRIKES, RULES, LOGOUT }
+internal enum class ForumAccountAction { LOGIN, POSTS, FAVORITES, BLACKLIST, STRIKES, RULES, LOGOUT }
 
 @Composable internal fun ForumAccountMenu(profile: Profile?, onAction: (ForumAccountAction) -> Unit) =
     ForumAccountMenu(profile, false, {}, onAction)
@@ -88,6 +88,7 @@ internal enum class ForumAccountAction { LOGIN, POSTS, FAVORITES, STRIKES, RULES
                             if(profile == null) AppFilledTonalButton(onClick = { select(ForumAccountAction.LOGIN) }, enabled = expanded, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) { Text("登录论坛") }
                             ForumPanelItem("我的帖子", Icons.Outlined.Description, expanded) { select(ForumAccountAction.POSTS) }
                             ForumPanelItem("云端收藏", Icons.Outlined.BookmarkBorder, expanded) { select(ForumAccountAction.FAVORITES) }
+                            ForumPanelItem("账号黑名单", Icons.Outlined.PersonOff, expanded) { select(ForumAccountAction.BLACKLIST) }
                             ForumPanelItem("处罚记录", Icons.Outlined.Gavel, expanded, unread = profile != null && hasUnreadStrikes) { select(ForumAccountAction.STRIKES) }
                             HorizontalDivider(Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
                             ForumPanelItem("社区守则", Icons.AutoMirrored.Outlined.Rule, expanded) { select(ForumAccountAction.RULES) }
@@ -125,14 +126,15 @@ internal class ForumPanelPosition(private val margin: Int, private val gap: Int)
 
 @Composable internal fun ForumSortPicker(sort: ForumSort, onSelect: (ForumSort) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
+    val selected = sort.visibleSort
     Box {
         AppTextButton(onClick = { expanded = true }, modifier = Modifier.testTag("forum-sort")) {
-            Text(sort.label); Icon(Icons.Outlined.KeyboardArrowDown, "选择帖子排序", Modifier.size(18.dp))
+            Text(selected.label); Icon(Icons.Outlined.KeyboardArrowDown, "选择帖子排序", Modifier.size(18.dp))
         }
         AppDropdownMenu(expanded, onDismissRequest = { expanded = false }) {
-            ForumSort.entries.forEach { option -> DropdownMenuItem(
+            ForumSort.visibleEntries.forEach { option -> DropdownMenuItem(
                 text = { Text(option.label) },
-                leadingIcon = { if(option == sort) Icon(Icons.Outlined.Check, "已选择") else Spacer(Modifier.size(24.dp)) },
+                leadingIcon = { if(option == selected) Icon(Icons.Outlined.Check, "已选择") else Spacer(Modifier.size(24.dp)) },
                 onClick = { expanded = false; if(sort != option) onSelect(option) }) }
         }
     }

@@ -4,6 +4,15 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MarkdownLinkPasteTest {
+    @Test fun selectedUrlsUseNativeReplacementIncludingMarkdownDestinations() {
+        for(selection in listOf("https://example.com/old", "HTTP://EXAMPLE.COM/a?q=b#part", " https://example.com/old ")) {
+            assertNull(markdownLinkForPaste(selection, 0, selection.length, "https://example.com/new", 20000))
+        }
+        val text = "[标题](https://example.com/old)"
+        assertNull(markdownLinkForPaste(text, 5, text.length - 1, "https://example.com/new", 20000))
+        assertNotNull(markdownLinkForPaste("example.com", 0, 11, "https://example.com/new", 20000))
+        assertNotNull(markdownLinkForPaste("网址说明", 0, 4, "https://example.com/new", 20000))
+    }
     @Test fun normalizesHttpUrlsAndPreservesQueryAndFragmentWithReversedSelection() {
         val expected = "[选中内容](https://example.com/a%28b%29?q=one&x=two#part)"
         assertEquals(expected, markdownLinkForPaste("前文选中内容后文", 6, 2,

@@ -167,7 +167,7 @@ class CompactLayoutTest {
         }
         compose.onNodeWithText("退出登录").assertDoesNotExist()
         compose.onNodeWithTag("account-permissions-toggle").performClick()
-        compose.onNodeWithText("社区发布").assertIsDisplayed()
+        compose.onNodeWithText("发表评论").assertIsDisplayed()
         compose.onNodeWithContentDescription("收起账号权限").performClick()
         compose.onNodeWithTag("profile-account-menu").performClick()
         compose.runOnIdle { assertEquals(0, logout) }

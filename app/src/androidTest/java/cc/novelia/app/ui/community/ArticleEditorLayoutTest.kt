@@ -16,6 +16,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import cc.novelia.app.MainActivity
 import cc.novelia.app.NoveliaApplication
 import cc.novelia.app.data.community.Article
+import cc.novelia.app.data.community.ForumCategory
 import cc.novelia.app.ui.navigation.AppController
 import cc.novelia.app.ui.theme.LocalReducedMotion
 import cc.novelia.app.ui.theme.NoveliaTheme
@@ -32,7 +33,7 @@ class ArticleEditorLayoutTest {
     @Test fun sourceEditorFitsKeyboardAndSurvivesManualPreview() {
         val app = compose.activity.application as NoveliaApplication
         val previous = app.store.state.value
-        val draftKey = "article:layout-test"
+        val draftKey = "article:f-987654321"
         val content = "# 编辑体验\n\n" + (1..70).joinToString("\n") { "第 $it 行：正文需要能够上下滑动。" }
         try {
             compose.runOnUiThread {
@@ -42,7 +43,8 @@ class ArticleEditorLayoutTest {
                     CompositionLocalProvider(LocalReducedMotion provides (arguments.getString("reducedMotion") == "true")) {
                     NoveliaTheme(arguments.getString("theme") ?: "light") {
                         val c = AppController(app, rememberNavController(), rememberCoroutineScope(), remember { SnackbarHostState() })
-                        ArticleEditor(c, Article(id = "layout-test", title = "编辑体验测试", content = content))
+                        ArticleEditor(c, Article(id = "f-987654321", title = "编辑体验测试", content = content, forumCategoryId = 100),
+                            listOf(ForumCategory(100, "novel")))
                     }
                     }
                 }

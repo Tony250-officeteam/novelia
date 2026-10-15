@@ -22,6 +22,7 @@
 | `/api/v1/external/comment` | `forum.novelia.cc` | 内嵌评论 API |
 | `/api/v1/me/post` | `forum.novelia.cc` | 我的帖子 |
 | `/api/v1/me/favorite` | `forum.novelia.cc` | 我的收藏 |
+| `/api/v1/me/blacklist` 及其子路径 | `forum.novelia.cc` | 账号黑名单，沿用论坛或小说评论的调用方会话 |
 | `/api/v1/me/strikes` 及其子路径 | `auth.novelia.cc` | 处罚记录、已读确认 |
 | `/api/v1/me/attention-status` | `auth.novelia.cc` | 未读提醒 |
 | 其余 `/api/**` | `n.novelia.cc` | 书站后端 |
@@ -61,6 +62,6 @@ Debug、本地 Release 和正式发行均使用相同注入逻辑。入口口令
 
 ## 回归
 
-JVM：`BookSourceTest` 覆盖全部论坛路由、处罚与未读路由、书站兜底、下载、认证 POST 免门禁、来源映射、失效绑定、Cookie 范围、流式读取及跨域重定向；`ForumAccountApiTest` 覆盖镜像处罚列表、未读提醒及精确的 64 位已读快照请求；`MirrorAuthCookiesTest` 覆盖域和路径匹配、刷新轮换与删除。
+JVM：`BookSourceTest` 覆盖全部论坛路由、黑名单读写、处罚与未读路由、书站兜底、下载、认证 POST 免门禁、来源映射、失效绑定、Cookie 范围、流式读取及跨域重定向；`ForumBlacklistApiTest` 覆盖黑名单的双会话归属、64 位 ID、错误响应和失效绑定；`ForumAccountApiTest` 覆盖镜像处罚列表、未读提醒及精确的 64 位已读快照请求；`MirrorAuthCookiesTest` 覆盖域和路径匹配、刷新轮换与删除。
 
 设备：`MirrorSessionTest` 与 `ForumMirrorSessionTest` 用虚构账号和本地响应验证小说／论坛的登录、注册、验证码、401 续期、加密存储兼容、SSO 复用及来源和会话隔离；`ForumMirrorLoginTest` 覆盖论坛镜像原生登录入口及页面恢复，`BookSourcePickerTest` 和 `BookSourceNavigationTest` 覆盖设置切换、无需手工输入入口口令、进入登录及 Activity 重建。真实账号登录与邮件发送不属于这些自动测试。

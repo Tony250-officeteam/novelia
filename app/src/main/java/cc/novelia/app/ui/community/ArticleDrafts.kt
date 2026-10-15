@@ -1,6 +1,7 @@
 package cc.novelia.app.ui.community
 
 import cc.novelia.app.data.community.ForumCategory
+import cc.novelia.app.data.community.ForumLinks
 import cc.novelia.app.data.storage.appJson
 import java.util.UUID
 import kotlinx.serialization.encodeToString
@@ -19,14 +20,17 @@ internal data class ArticleDraft(val key: String, val title: String, val content
 
 /** 旧固定键继续可见；新草稿用 UUID，永远不占用已有文章、评论或文库草稿的键。 */
 internal object ArticleDrafts {
-    fun newKey(forum: Boolean = false): String = "article:${if(forum) "forum-new" else "new"}:${UUID.randomUUID()}"
+    fun newKey(): String = "article:forum-new:${UUID.randomUUID()}"
     private fun matches(key: String, prefix: String): Boolean = key == prefix ||
         (key.startsWith("$prefix:") && runCatching { UUID.fromString(key.removePrefix("$prefix:")) }.isSuccess)
     fun isForumNewPostKey(key: String): Boolean = matches(key, "article:forum-new")
-    fun isNewPostKey(key: String): Boolean = matches(key, "article:new") || isForumNewPostKey(key)
+    // 仅保留草稿数据兼容：旧站新帖及修改草稿作为新论坛帖子恢复，不再请求旧接口。
+    fun isNewPostKey(key: String): Boolean = matches(key, "article:new") || isForumNewPostKey(key) ||
+        storedArticleId(key)?.let { ForumLinks.postId(it) == null } == true
 
-    fun editedArticleId(key: String): String? = key.takeIf { it.startsWith("article:") }
+    private fun storedArticleId(key: String): String? = key.takeIf { it.startsWith("article:") }
         ?.removePrefix("article:")?.takeIf { it.isNotBlank() && ':' !in it && it !in setOf("new", "forum-new") }
+    fun editedArticleId(key: String): String? = storedArticleId(key)?.takeIf { ForumLinks.postId(it) != null }
 
     fun snapshot(title: String, content: String, category: String, categoryId: Long?, categorySlug: String?, tagIds: List<Long>): String =
         appJson.encodeToString(mapOf("title" to title, "content" to content, "category" to category,
@@ -35,7 +39,7 @@ internal object ArticleDrafts {
     fun read(key: String, snapshot: String): ArticleDraft {
         val fields = runCatching { appJson.decodeFromString<Map<String, String>>(snapshot) }.getOrNull()
         return ArticleDraft(key, fields?.get("title").orEmpty(), fields?.get("content") ?: snapshot,
-            fields?.get("category")?.takeIf { it in categories } ?: "General",
+            fields?.get("category").orEmpty(),
             fields?.get("categoryId")?.toLongOrNull(),
             fields?.get("tagIds")?.split(',')?.mapNotNull { it.toLongOrNull() },
             fields?.get("categorySlug")?.takeIf { it.isNotBlank() })

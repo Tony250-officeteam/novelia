@@ -46,7 +46,8 @@ internal object ClipboardLinks {
         }).toASCIIString()
         // 查询条件和评论锚点由站内网页承接，不能在提醒跳转时静默丢掉。
         val route = if(uri.rawQuery != null || !uri.rawFragment.isNullOrEmpty())
-            "web?url=${URLEncoder.encode(normalized, "UTF-8")}" else MarkdownLinks.nativeRoute(normalized) ?: return null
+            "web?url=${URLEncoder.encode(normalized, "UTF-8")}" else MarkdownLinks.nativeRoute(normalized)
+                ?: "web?url=${URLEncoder.encode(normalized, "UTF-8")}"
         ClipboardSiteLink(normalized, route, label)
     }.getOrNull()
 }

@@ -16,7 +16,7 @@ enum class BookSource(val id: String, val title: String, val origin: String, val
 /** 镜像按路径分流；匹配完整路径段，避免把 postscript 等书站接口送到论坛。 */
 internal fun isForumApiPath(path: String): Boolean = listOf(
     "/api/v1/category", "/api/v1/post", "/api/v1/comment", "/api/v1/external/comment",
-    "/api/v1/me/post", "/api/v1/me/favorite",
+    "/api/v1/me/post", "/api/v1/me/favorite", "/api/v1/me/blacklist",
 ).any { path == it || path.startsWith("$it/") }
 
 internal fun isAuthApiPath(path: String): Boolean = path == "/api/v1/auth" || path.startsWith("/api/v1/auth/")

@@ -2,7 +2,7 @@
 
 [网络目录](README.md) · [社区功能](../features/community.md) · [文档首页](../README.md)
 
-当前社区入口使用独立论坛 `forum.novelia.cc`；网络小说和文库小说的评论也已迁至论坛的外部资源接口，旧站文章仍使用小说服务。本文描述当前客户端合约。文件名保留早期的 `preview` 以兼容旧链接，分支适配过程和当时的测试结果已移至[历史记录](../maintenance/history/forum-adaptation.md)。
+当前社区入口使用独立论坛 `forum.novelia.cc`；网络小说和文库小说的评论也已迁至论坛的外部资源接口。旧站文章与评论的客户端接口已移除，历史链接由网页打开。本文描述当前客户端合约。文件名保留早期的 `preview` 以兼容旧链接，分支适配过程和当时的测试结果已移至[历史记录](../maintenance/history/forum-adaptation.md)。
 
 核对依据为仓库中的 [ForumApi](../../app/src/main/java/cc/novelia/app/data/community/ForumApi.kt)、[NovelCommentApi](../../app/src/main/java/cc/novelia/app/data/community/NovelCommentApi.kt)、[ForumAccountApi](../../app/src/main/java/cc/novelia/app/data/community/ForumAccountApi.kt)、[模型](../../app/src/main/java/cc/novelia/app/data/community/ForumModels.kt) 和合约测试。2026-10-06 已只读核对线上教程、网络小说评论及回复、文库评论分页。
 
@@ -10,16 +10,18 @@
 
 ## 基础约定
 
+2026-10-15 按线上脚本 `index-DcRnmliH.js` 的部署 SHA [`6bae949`](https://github.com/auto-novel/forum/tree/6bae9493739a7af9440a9db65be27eb52b90e19e) 复核，补充 `updated` 排序、账号黑名单和 `authorBlocked`，并修复守则权限表解析及评论注册时长提示。原有 `newest` 排序保留接口兼容，客户端菜单不再显示。
+
 API 根路径为 `https://forum.novelia.cc/api/v1/`。客户端页码从 0 开始，发请求时转换为从 1 开始的 `page`；页大小字段为 `page_size`，分页响应为 `{ total, items }`。
 
-帖子和评论使用数字 ID，时间为 RFC 3339 字符串。计数和记录 ID 使用 64 位整数；不要经浮点数转换。帖子、帖子评论与论坛账号操作使用 `app=f` 的会话，不接受主站令牌；外部小说评论使用 `app=n` 的小说会话。论坛 API 随书源线路切换，XKVI 的根路径为 `https://book.xkvi.top/api/v1/`；原站和镜像会话分别保存，切换使旧绑定失效。具体路径分流见[书源线路](../development/book-source-mirrors.md)。
+帖子和评论使用数字 ID，时间为 RFC 3339 字符串。计数和记录 ID 使用 64 位整数；不要经浮点数转换。帖子、帖子评论与论坛账号页面使用 `app=f` 的会话；外部小说评论及评论内的拉黑操作使用 `app=n` 的小说会话。论坛 API 随书源线路切换，XKVI 的根路径为 `https://book.xkvi.top/api/v1/`；原站和镜像会话分别保存，切换使旧绑定失效。具体路径分流见[书源线路](../development/book-source-mirrors.md)。
 
 ## 主要接口
 
 | 操作 | 方法与路径 | 请求要点 |
 | --- | --- | --- |
 | 分类 | `GET category/` | 读取当前 ID、slug、标签 |
-| 帖子列表 | `GET post/` | 分类传 slug，搜索 `q`，排序 `active/newest/views/comments`，`tag` 为逗号分隔 ID |
+| 帖子列表 | `GET post/` | 分类传 slug，搜索 `q`，排序 `active/updated/newest/views/comments`，`tag` 为逗号分隔 ID |
 | 帖子详情 | `GET post/{id}/` | 返回完整帖子 |
 | 发布 / 修改 | `POST post/`、`PATCH post/{id}/` | `categoryId, title, content, tagIds` |
 | 删除帖子 | `DELETE post/{id}/` | 接受无正文的成功响应 |
@@ -29,6 +31,10 @@ API 根路径为 `https://forum.novelia.cc/api/v1/`。客户端页码从 0 开�
 | 修改 / 删除评论 | `PATCH/DELETE comment/{id}` | PATCH 只发 content，不发 rootId，连 null 也不发 |
 | 收藏 | `PUT/DELETE post/{id}/favorite` | 直接请求，不进入原站离线队列 |
 | 我的收藏 / 帖子 | `GET me/favorite`、`GET me/post` | 论坛认证分页 |
+| 账号黑名单 | `GET me/blacklist` | `{ total, items: [{ userId, createdAt }] }`，一次返回完整列表，最多 1000 人 |
+| 拉黑 / 取消拉黑 | `PUT/DELETE me/blacklist/{userId}` | 无 JSON 正文，成功为 204；沿用当前讨论的会话，不进入离线队列 |
+
+黑名单由 [ForumBlacklistApi](../../app/src/main/java/cc/novelia/app/data/community/ForumBlacklistApi.kt) 管理，论坛入口用 `app=f`，小说评论入口用 `app=n`。请求显式绑定发起时的账号、登录代次和线路；`me/blacklist` 已加入镜像路径分流。失败不触发刷新，成功通知帖子及讨论列表丢弃旧结果和回复缓存。帖子与评论模型读取 `authorBlocked`，缺失时兼容为 `false`。列表及回复计数采用服务端按当前账号过滤后的结果。
 
 ## 小说评论
 
@@ -41,7 +47,7 @@ API 根路径为 `https://forum.novelia.cc/api/v1/`。客户端页码从 0 开�
 | 新评论 / 回复 | `POST external/comment/novel/{subjectKey}` | content，回复携带根评论 rootId |
 | 修改 / 删除 | `PATCH/DELETE external/comment/novel/{commentId}` | PATCH 只发送 content |
 
-一级响应可带 replyCount 和 replies 首屏，优先复用。隐藏小说评论和屏蔽用户同时作用于一级评论与回复；草稿按小说资源、账号和回复目标隔离。旧站文章的 `CommentsPanel` 保留原接口。帮助与关于、搜索语法入口均打开新论坛教程 `f-1`。
+一级响应可带 replyCount 和 replies 首屏，优先复用。隐藏小说评论和屏蔽用户同时作用于一级评论与回复；草稿按小说资源、账号和回复目标隔离。帮助与关于、搜索语法入口均打开新论坛教程 `f-1`。
 
 ## 分类、权限和草稿
 
@@ -49,13 +55,13 @@ API 根路径为 `https://forum.novelia.cc/api/v1/`。客户端页码从 0 开�
 
 论坛允许的标题为 2–100 个 Unicode 码点，正文 1–20,000，评论 1–1,000，标签最多 3 个。规则集中在 [ForumRules.kt](../../app/src/main/java/cc/novelia/app/data/community/ForumRules.kt)，不能用 UTF-16 长度替代码点数。
 
-`member`、`trusted`、`admin` 可发言，公告限管理员。普通作者删除帖子、修改或删除评论有发布后 20 分钟限制，管理员不受此时限影响；最终权限仍由服务端校验。
+`member`、`trusted`、`admin` 可发帖，公告限管理员。论坛和小说的新评论额外要求注册满 30 × 24 小时，此条件对所有角色生效；编辑评论不套用新评论的注册时长条件。普通作者删除帖子、修改或删除评论有发布后 20 分钟限制，管理员不受此修改时限影响；最终权限仍由服务端校验。
 
 新草稿保存分类 slug，恢复时重新解析当前 ID、过滤不适用标签。仅有数字 ID 的旧草稿保留正文，但要求用户重新选择分类，避免 ID 重用后发错版块。
 
 2026-10-07 匿名核对当前分类与网页脚本 `index-DFXBijA9.js`：分类标签带 `id/name/color/sortOrder`，帖子标签带 `id/name/color`，最多选择三个。客户端按 `sortOrder` 展示选择项，以 `tag=<ID>` 筛选列表，发布和修改沿用 `tagIds` 数组；颜色使用网页的五色索引循环。
 
-本次公开抽查发现列表批量标签会遗漏同一标签的部分关联，详情返回完整标签。筛选结果仍正确匹配所选标签，客户端依据该查询条件和当前分类元数据补回所选标签，保留响应中的其他标签；未查询到的其他标签不能据此推断，完整标签以详情为准。列表不会为补标签逐篇读取详情，避免额外请求及增加浏览计数。
+10 月 7 日抽查曾发现列表批量标签遗漏同一标签的部分关联，上游于 10 月 8 日修复，当前部署已包含该修复。客户端保留旧部署的兼容逻辑：依据查询条件和分类元数据补回所选标签，保留其他返回标签；未查询到的其他标签不作推断，也不为补标签逐篇读取详情。
 
 ## 回复计数与首屏缓存
 
@@ -83,4 +89,4 @@ API 根路径为 `https://forum.novelia.cc/api/v1/`。客户端页码从 0 开�
 
 400/403/404/409 的短纯文本业务原因经校验后展示；HTML、超长内容和内部错误采用通用提示。写操作失败保留草稿，不因模糊失败自动重复发帖或评论。
 
-合约与缓存回归位于 [data/network 测试目录](../../app/src/test/java/cc/novelia/app/data/network)：`ForumApiContractTest`、`ForumAccountApiTest`、`ForumReplyCountsTest`、`ForumReplyPageCacheTest`、`ForumCommunityRulesTest`。页面回归在 [ui/community](../../app/src/androidTest/java/cc/novelia/app/ui/community)，另有守则解析器的 Android 测试。真实站点只读联调及其开关见[测试指南](../quality/testing.md)。
+合约与缓存回归位于 [data/community 测试目录](../../app/src/test/java/cc/novelia/app/data/community)：`ForumApiContractTest`、`ForumAccountApiTest`、`ForumBlacklistApiTest`、`ForumReplyCountsTest`、`ForumReplyPageCacheTest`、`ForumCommunityRulesTest`。页面回归在 [ui/community](../../app/src/androidTest/java/cc/novelia/app/ui/community)，另有守则解析器的 Android 测试。真实站点只读联调及其开关见[测试指南](../quality/testing.md)。

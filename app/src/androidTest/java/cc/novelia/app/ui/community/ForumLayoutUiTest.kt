@@ -104,7 +104,7 @@ class ForumLayoutUiTest {
             }
         } }
         val reply = compose.onNodeWithText("回复").getUnclippedBoundsInRoot()
-        val block = compose.onNodeWithText("屏蔽用户").getUnclippedBoundsInRoot()
+        val block = compose.onNodeWithText("本地屏蔽").getUnclippedBoundsInRoot()
         val expand = compose.onNodeWithText("查看回复（数量暂不可用）").getUnclippedBoundsInRoot()
         assertEquals(reply.top.value, block.top.value, 1f)
         assertEquals(reply.top.value, expand.top.value, 1f)

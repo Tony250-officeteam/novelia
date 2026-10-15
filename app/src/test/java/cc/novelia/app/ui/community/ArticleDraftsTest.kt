@@ -13,7 +13,7 @@ class ArticleDraftsTest {
     private fun snapshot(title: String, content: String) = appJson.encodeToString(mapOf("title" to title, "content" to content, "category" to "Guide"))
 
     @Test fun draftBoxIncludesExistingPostEditsAndExcludesOtherEditors() {
-        val newPost = ArticleDrafts.newKey(true)
+        val newPost = ArticleDrafts.newKey()
         val text = snapshot("旧帖子内容", "未提交的修改")
         val stored = mapOf(newPost to text, "article:f-10" to text, "article:legacy-id" to text,
             "article:new" to text, "article:forum-new" to text,
@@ -22,7 +22,8 @@ class ArticleDraftsTest {
         val visible = ArticleDrafts.posts(stored)
         assertEquals(setOf(newPost, "article:f-10", "article:legacy-id", "article:new", "article:forum-new"), visible.map { it.key }.toSet())
         assertEquals("f-10", ArticleDrafts.editedArticleId("article:f-10"))
-        assertEquals("legacy-id", ArticleDrafts.editedArticleId("article:legacy-id"))
+        assertNull(ArticleDrafts.editedArticleId("article:legacy-id"))
+        assertTrue(ArticleDrafts.isNewPostKey("article:legacy-id"))
         assertNull(ArticleDrafts.editedArticleId(newPost))
         assertNull(ArticleDrafts.editedArticleId("article:forum-new"))
         assertNull(ArticleDrafts.editedArticleId("comment:article:f-10"))
@@ -57,9 +58,9 @@ class ArticleDraftsTest {
     }
 
     @Test fun forumDraftsKeepTheirSiteCategoryAndTagsAcrossReload() {
-        val first = ArticleDrafts.newKey(forum = true)
-        val second = ArticleDrafts.newKey(forum = true)
-        val legacy = ArticleDrafts.newKey()
+        val first = ArticleDrafts.newKey()
+        val second = ArticleDrafts.newKey()
+        val legacy = "article:new:00000000-0000-0000-0000-000000000001"
         val forumText = appJson.encodeToString(mapOf("title" to "论坛草稿", "content" to "论坛正文",
             "categoryId" to "3", "tagIds" to "7,9"))
         val state = LibraryState(drafts = mapOf(first to forumText, second to forumText,
@@ -83,7 +84,7 @@ class ArticleDraftsTest {
         val recovered = ArticleDrafts.read("article:new", "保留未能解析的原始正文")
         assertEquals("未命名草稿", recovered.displayTitle)
         assertEquals("保留未能解析的原始正文", recovered.content)
-        assertEquals("General", recovered.category)
+        assertEquals("", recovered.category)
         assertFalse(ArticleDrafts.isNewPostKey("article:new:other-editor"))
     }
 

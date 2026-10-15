@@ -1,6 +1,10 @@
 package cc.novelia.app
 
+import android.net.Uri
+import cc.novelia.app.data.community.ForumLinks
+
 import cc.novelia.app.ui.community.ForumStrikesScreen
+import cc.novelia.app.ui.community.ForumBlacklistScreen
 import cc.novelia.app.ui.community.ForumRulesScreen
 import android.content.Intent
 import android.os.Bundle
@@ -225,11 +229,16 @@ class MainActivity : ComponentActivity() {
                             }
                             composable("book/{provider}/{id}") { BookScreen(controller, BookRef(it.arguments!!.getString("provider")!!, it.arguments!!.getString("id")!!)) }
                             composable("reader/{provider}/{id}/{chapter}") { ReaderScreen(controller, BookRef(it.arguments!!.getString("provider")!!, it.arguments!!.getString("id")!!), it.arguments!!.getString("chapter")!!) }
-                            composable("article/{id}") { ArticleScreen(controller, it.arguments!!.getString("id")!!, it.savedStateHandle) }
+                            composable("article/{id}") {
+                                val id = it.arguments!!.getString("id")!!
+                                if(ForumLinks.postId(id) != null) ArticleScreen(controller, id, it.savedStateHandle)
+                                else SiteWebScreen(controller, "https://n.novelia.cc/forum/${Uri.encode(id)}")
+                            }
                             composable("compose?article={article}&draft={draft}") { ComposeArticleScreen(controller, it.arguments?.getString("article"), it.arguments?.getString("draft")) }
                             composable("login") { LoginScreen(controller) }
                             composable("forum-login") { LoginScreen(controller, forum = true) }
                             composable("forum-strikes") { ForumStrikesScreen(controller) }
+                            composable("forum-blacklist") { ForumBlacklistScreen(controller) }
                             composable("forum-rules") { ForumRulesScreen(controller) }
                             composable("settings?section={section}") { entry -> SettingsScreen(controller, entry.arguments?.getString("section")) }
                             composable("edge-toolbar") { EdgeToolbarSettingsScreen(controller) }

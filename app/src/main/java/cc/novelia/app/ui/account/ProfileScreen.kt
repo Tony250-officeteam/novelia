@@ -2,6 +2,9 @@
 
 package cc.novelia.app.ui.account
 
+import cc.novelia.app.data.community.ForumRules
+import cc.novelia.app.ui.community.rememberForumCommentTime
+
 import cc.novelia.app.ui.components.base.AppTextButton
 import cc.novelia.app.ui.components.base.AppFilledTonalButton
 import cc.novelia.app.ui.components.base.AppIconButton
@@ -101,12 +104,14 @@ import cc.novelia.app.ui.theme.appReducedMotion
             }
             if(profile == null && separateLogin) AppFilledTonalButton(onClick = onLogin,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("登录 / 注册") }
-            if(profile != null) AccountPermissionsCard(profile.username, profile.canPost, profile.canEdit, Modifier.widthIn(max = 520.dp))
+            if(profile != null) AccountPermissionsCard(profile.username,
+                ForumRules.canCreateComment(profile, rememberForumCommentTime(profile)),
+                profile.canEdit, Modifier.widthIn(max = 520.dp))
         }
     }
 }
 
-@Composable internal fun AccountPermissionsCard(username: String, canPost: Boolean, canEdit: Boolean, modifier: Modifier = Modifier) {
+@Composable internal fun AccountPermissionsCard(username: String, canComment: Boolean, canEdit: Boolean, modifier: Modifier = Modifier) {
     var expanded by rememberSaveable(username) { mutableStateOf(false) }
     Box(modifier.fillMaxWidth()) {
         AppTextButton(onClick = { expanded = !expanded }, modifier = Modifier.fillMaxWidth()
@@ -121,13 +126,13 @@ import cc.novelia.app.ui.theme.appReducedMotion
             FilterPanelExpandIcon(expanded)
         }
         key(username) {
-            AccountPermissionsPopup(expanded, canPost, canEdit, onDismiss = { expanded = false })
+            AccountPermissionsPopup(expanded, canComment, canEdit, onDismiss = { expanded = false })
         }
     }
 }
 
 /** 与论坛“我的”一致的浮层层级；Popup 不参与账号卡片和下方入口的测量。 */
-@Composable private fun AccountPermissionsPopup(expanded: Boolean, canPost: Boolean, canEdit: Boolean, onDismiss: () -> Unit) {
+@Composable private fun AccountPermissionsPopup(expanded: Boolean, canComment: Boolean, canEdit: Boolean, onDismiss: () -> Unit) {
     // 浮层刚打开、窗口焦点尚未切换时，返回键也只收起浮层。
     BackHandler(enabled = expanded, onBack = onDismiss)
     val reduced = appReducedMotion()
@@ -158,7 +163,7 @@ import cc.novelia.app.ui.theme.appReducedMotion
                         Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 12.dp),
                             verticalArrangement = Arrangement.spacedBy(16.dp)) {
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                            PermissionStatus("社区发布", canPost)
+                            PermissionStatus("发表评论", canComment)
                             PermissionStatus("书籍编辑", canEdit)
                         }
                     }

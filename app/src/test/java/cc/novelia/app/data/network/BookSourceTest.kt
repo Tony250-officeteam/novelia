@@ -44,7 +44,7 @@ class BookSourceTest {
             "/api/v1/category", "/api/v1/category/", "/api/v1/post", "/api/v1/post/5/",
             "/api/v1/post/5/favorite", "/api/v1/post/5/comment/8/reply",
             "/api/v1/comment/12", "/api/v1/external/comment/novel/web-test-book",
-            "/api/v1/me/post", "/api/v1/me/favorite",
+            "/api/v1/me/post", "/api/v1/me/favorite", "/api/v1/me/blacklist", "/api/v1/me/blacklist/9007199254740993",
         )
         val mirrored = paths.map { path ->
             val request = Request.Builder().url("https://forum.novelia.cc$path?tag=1&tag=2&q=%E4%B9%A6%2F%E5%90%8D")
@@ -79,6 +79,7 @@ class BookSourceTest {
             "POST" to "/api/v1/post/", "PATCH" to "/api/v1/post/5/", "DELETE" to "/api/v1/post/5/",
             "POST" to "/api/v1/post/5/comment", "PATCH" to "/api/v1/comment/12",
             "DELETE" to "/api/v1/comment/12", "PUT" to "/api/v1/post/5/favorite",
+            "PUT" to "/api/v1/me/blacklist/42", "DELETE" to "/api/v1/me/blacklist/42",
         )) {
             val request = Request.Builder().url("https://forum.novelia.cc$path")
                 .method(method, "test-json".toRequestBody()).header("Authorization", "Bearer test-forum").build()
@@ -150,6 +151,7 @@ class BookSourceTest {
             "https://auth.novelia.cc/api/v1/admin/strikes", "https://auth.novelia.cc/",
             "https://forum.novelia.cc/api/v1/admin/category", "https://forum.novelia.cc/api/v1/admin/post",
             "https://forum.novelia.cc/api/v1/admin/comment",
+            "https://forum.novelia.cc/api/v1/me/blacklist-other",
             "https://forum.novelia.cc/", "https://forum.novelia.cc/api/v1/other", "https://forum.novelia.cc/cdn-cgi/trace",
         )) {
             val request = Request.Builder().url(url).build()

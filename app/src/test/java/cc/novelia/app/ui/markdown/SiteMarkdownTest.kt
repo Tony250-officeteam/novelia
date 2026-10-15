@@ -81,7 +81,7 @@ class SiteMarkdownTest {
     }
 
     @Test fun relativeInternalLinksStayInAppAndExternalUrlsStayExternal() {
-        assertEquals("article/abc123", MarkdownLinks.nativeRoute(MarkdownLinks.resolve("/forum/abc123?x=1")!!))
+        assertNull(MarkdownLinks.nativeRoute(MarkdownLinks.resolve("/forum/abc123?x=1")!!))
         assertNull(MarkdownLinks.nativeRoute(MarkdownLinks.resolve("/forum/abc123?x=1#reply")!!))
         assertEquals("book/wenku/abc123", MarkdownLinks.nativeRoute(MarkdownLinks.resolve("/wenku/abc123")!!))
         assertEquals("reader/syosetu/n1234/5", MarkdownLinks.nativeRoute(MarkdownLinks.resolve("//n.novelia.cc/novel/syosetu/n1234/5")!!))

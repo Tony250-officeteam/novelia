@@ -17,9 +17,10 @@ class ForumCommunityRulesParserAndroidTest {
             """<script type="module" src="/assets/index-deployed.js"></script>"""))
         val sha = "0123456789abcdef0123456789abcdef01234567"
         assertEquals(sha, ForumCommunityRulesParser.commitSha("""const repository={commitSha:'$sha'};"""))
-        val blocks = ForumCommunityRulesParser.parse(fixture("forum-community-rules-20261004.vue"))
+        val blocks = ForumCommunityRulesParser.parse(fixture("forum-community-rules-20261015.vue"))
         assertEquals(bundledForumCommunityRules.blocks, blocks)
         assertEquals(10, blocks.last().table!!.rows.size)
+        assertEquals(14, ForumCommunityRulesParser.parse(fixture("forum-community-rules-20261004.vue")).size)
         assertEquals(6, ForumCommunityRulesParser.parse(fixture("forum-community-rules.vue")).size)
     }
 

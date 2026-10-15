@@ -1,6 +1,9 @@
 package cc.novelia.app.data.community
 
 import cc.novelia.app.data.cache.MetadataCache
+import cc.novelia.app.data.storage.appJson
+import cc.novelia.app.data.storage.hashName
+import kotlinx.serialization.encodeToString
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -17,6 +20,7 @@ class ForumCommunityRulesTest {
     // 原站部署 692916b 的静态守则；不包含用户评论或账号资料。
     private val template get() = javaClass.getResource("/forum-community-rules.vue")!!.readText(Charsets.UTF_8)
     private val updatedTemplate get() = javaClass.getResource("/forum-community-rules-20261004.vue")!!.readText(Charsets.UTF_8)
+    private val currentTemplate get() = javaClass.getResource("/forum-community-rules-20261015.vue")!!.readText(Charsets.UTF_8)
     private fun html(name: String) = """<html><script type="module" src="/assets/index-$name.js"></script><script type="module" src="https://example.test/analytics.js"></script></html>"""
     private fun bundle(commit: String) = """const config={repository:{url:`https://github.com/auto-novel/forum`,commitSha:`$commit`}};"""
     private fun repository(server: MockWebServer, cache: MetadataCache) = ForumCommunityRulesRepository(cache,
@@ -45,9 +49,8 @@ class ForumCommunityRulesTest {
         assertTrue(runCatching { ForumCommunityRulesParser.commitSha(bundle(sha) + bundle(nextSha)) }.isFailure)
     }
 
-    @Test fun octoberFourthRulesPreserveEveryPermissionAndMatchTheOfflineCopy() {
+    @Test fun octoberFourthRulesRemainReadableForOlderDeployments() {
         val blocks = ForumCommunityRulesParser.parse(updatedTemplate)
-        assertEquals(bundledForumCommunityRules.blocks, blocks)
         assertEquals(14, blocks.size)
         assertEquals(10, blocks.filter { it.list }.sumOf { it.text.lines().size })
         val table = blocks.single { it.table != null }.table!!
@@ -58,6 +61,41 @@ class ForumCommunityRulesTest {
         assertEquals(listOf(true, true, true), table.rows.first { it.operation == "上传文库小说" }.allowed)
         val changed = ForumCommunityRulesParser.parse(updatedTemplate.replace("allowed: [true, true, false]", "allowed: [false, true, false]"))
         assertEquals(listOf(false, true, false), changed.last().table!!.rows[1].allowed)
+    }
+
+    @Test fun currentDeployedRulesMatchTheOfflineCopyAndRequireThirtyDaysForBothCommentKinds() {
+        val blocks = ForumCommunityRulesParser.parse(currentTemplate)
+        assertEquals(bundledForumCommunityRules.blocks, blocks)
+        val table = blocks.last().table!!
+        assertEquals(listOf("站点", "操作", "普通用户 未满30天", "普通用户 满30天", "受限用户"), table.headers)
+        assertEquals(10, table.rows.size)
+        assertEquals(listOf(false, true, false), table.rows.first { it.site == "论坛" && it.operation == "发表评论" }.allowed)
+        assertEquals(listOf(false, true, false), table.rows.first { it.site == "小说" && it.operation == "发表评论" }.allowed)
+        assertTrue(runCatching { ForumCommunityRulesParser.parse(currentTemplate.replace(
+            "`${'$'}{permission.site}-${'$'}{permission.name}`", "permission.unknown()")) }.isFailure)
+    }
+
+    @Test fun refreshAcceptsTheCurrentDeploymentAndPersistsItForOfflineUse() = runBlocking {
+        MockWebServer().use { server ->
+            val cache = MetadataCache(folder.newFolder())
+            val repo = repository(server, cache)
+            server.enqueue(MockResponse().setBody(html("current")))
+            server.enqueue(MockResponse().setBody(bundle(nextSha)))
+            server.enqueue(MockResponse().setBody(currentTemplate))
+            val rules = repo.refresh()
+            assertEquals(bundledForumCommunityRules.blocks, rules.blocks)
+            assertEquals(rules, repository(server, cache).cached())
+        }
+    }
+
+    @Test fun obsoletePermissionCacheDoesNotReplaceTheUpdatedOfflineRules() = runBlocking {
+        MockWebServer().use { server ->
+            val cache = MetadataCache(folder.newFolder())
+            cache.write(hashName("forum-community-rules-v1"), appJson.encodeToString(
+                ForumCommunityRules(ForumCommunityRulesParser.parse(updatedTemplate), "/assets/index-old.js", sha)))
+            assertEquals(bundledForumCommunityRules, repository(server, cache).cached())
+            assertEquals(0, server.requestCount)
+        }
     }
 
     @Test fun unsupportedPermissionExpressionsAndTableChangesAreRejected() {

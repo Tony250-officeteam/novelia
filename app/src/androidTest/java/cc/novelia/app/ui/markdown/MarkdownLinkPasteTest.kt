@@ -31,7 +31,7 @@ class MarkdownLinkPasteTest {
     private val original = "前文选中内容后文"
 
     private fun clipboard(text: String) { clip = ClipEntry(ClipData.newPlainText("测试", text)) }
-    private fun showEditor(comment: Boolean, limit: Int? = null) {
+    private fun showEditor(comment: Boolean, limit: Int? = null, initialText: String = original) {
         compose.setContent {
             val system = LocalClipboard.current
             val testClipboard = remember(system) { object : Clipboard by system {
@@ -40,7 +40,7 @@ class MarkdownLinkPasteTest {
             } }
             CompositionLocalProvider(LocalClipboard provides testClipboard) {
                 NoveliaTheme("light") {
-                    var text by remember { mutableStateOf(original) }
+                    var text by remember { mutableStateOf(initialText) }
                     var title by remember { mutableStateOf("标题") }
                     Column(Modifier.fillMaxSize()) {
                         OutlinedTextField(title, { title = it }, modifier = Modifier.testTag("plain-title"))
@@ -116,5 +116,15 @@ class MarkdownLinkPasteTest {
         field(true).replace("前字后").select(TextRange(1, 2)).paste()
             .assertTextContains("前http://a后")
         compose.runOnIdle { assertEquals("前http://a后", savedDraft) }
+    }
+
+    @Test fun replacingAUrlKeepsNativePasteAndUndo() {
+        val old = "https://example.com/old"
+        clipboard("https://example.com/new"); showEditor(comment = false, initialText = old)
+        field().select(TextRange(0, old.length)).paste()
+        field().assertTextContains("https://example.com/new")
+        field().control(Key.Z)
+        field().assertTextContains(old)
+        compose.runOnIdle { assertEquals(0, clipboardWrites) }
     }
 }

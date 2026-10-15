@@ -25,7 +25,7 @@ import cc.novelia.app.ui.navigation.AppController
     var addUser by remember { mutableStateOf(false) }
     var addAuthor by remember { mutableStateOf(false) }
     ProfileDetailScreen("屏蔽管理", c::back, actions = { AppIconButton(onClick = { add = true }) { Icon(Icons.Outlined.Add, "屏蔽标签") } }) { padding -> ProfileDetailList(Modifier.padding(padding)) {
-        item { ProfileSummary("本地屏蔽", "只影响此设备的发现列表，不更改原站收藏。", Icons.Outlined.Block) }
+        item { ProfileSummary("本地屏蔽", "只影响此设备的作品和讨论列表；账号黑名单在社区中管理。", Icons.Outlined.Block) }
         item { ProfileSectionTitle("用户", "添加用户") { addUser = true } }
         items(state.blockedUsers.toList()) { user -> ProfileMenuRow(user, "点击取消屏蔽", Icons.Outlined.PersonOff, { c.store.update { it.copy(blockedUsers = it.blockedUsers - user) } }) }
         item { ProfileSectionTitle("标签", "添加标签") { add = true } }

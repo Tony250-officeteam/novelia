@@ -83,22 +83,24 @@ class ProfileDashboardTest {
         val cardBounds = compose.onNodeWithTag("profile-account-card").getUnclippedBoundsInRoot()
         assertTrue("账号文字应靠近卡片顶部", roleBounds.top - cardBounds.top <= 32.dp)
         compose.onNodeWithText("5 本更新").assertIsDisplayed()
-        compose.onNodeWithText("社区发布").assertDoesNotExist()
+        compose.onNodeWithText("发表评论").assertDoesNotExist()
         val accountBounds = compose.onNodeWithTag("profile-account-card").fetchSemanticsNode().boundsInRoot
         val readingBounds = compose.onNodeWithTag("profile-history").fetchSemanticsNode().boundsInRoot
         compose.onNodeWithTag("account-permissions-toggle").assertHeightIsAtLeast(48.dp).performClick()
         compose.onNodeWithTag("account-permissions-panel").assert(hasAnyAncestor(isPopup()))
-        compose.onNodeWithText("可用").assertIsDisplayed()
-        compose.onNodeWithText("受限").assertIsDisplayed()
+        compose.onNodeWithText("可用").assertDoesNotExist()
+        compose.onAllNodesWithText("受限").assertCountEquals(2)
+        compose.runOnIdle { profile = profile.copy(createdAt = System.currentTimeMillis() / 1000 - 30L * 86400) }
+        compose.onAllNodesWithText("可用").assertCountEquals(2)
         assertEquals(accountBounds, compose.onNodeWithTag("profile-account-card").fetchSemanticsNode().boundsInRoot)
         assertEquals(readingBounds, compose.onNodeWithTag("profile-history").fetchSemanticsNode().boundsInRoot)
         restoration.emulateSavedInstanceStateRestore()
-        compose.onNodeWithText("社区发布").assertIsDisplayed()
+        compose.onNodeWithText("发表评论").assertIsDisplayed()
         assertEquals(readingBounds, compose.onNodeWithTag("profile-history").fetchSemanticsNode().boundsInRoot)
         capture("profile-account-expanded")
         compose.runOnIdle { profile = Profile("受限用户", "restricted", 0, Long.MAX_VALUE) }
         compose.onNodeWithText("受限账号").assertIsDisplayed()
-        compose.onNodeWithText("社区发布").assertDoesNotExist()
+        compose.onNodeWithText("发表评论").assertDoesNotExist()
         compose.onNodeWithTag("account-permissions-toggle").performClick()
         compose.onAllNodesWithText("受限").assertCountEquals(2)
         compose.onNodeWithContentDescription("收起账号权限").assertHeightIsAtLeast(48.dp).performClick()
@@ -169,7 +171,7 @@ class ProfileDashboardTest {
         compose.onNodeWithTag("profile-wide-layout").assertDoesNotExist()
         val readingBounds = compose.onNodeWithTag("profile-history").fetchSemanticsNode().boundsInRoot
         compose.onNodeWithTag("account-permissions-toggle").performClick()
-        compose.onNodeWithText("社区发布").assertIsDisplayed()
+        compose.onNodeWithText("发表评论").assertIsDisplayed()
         compose.onNodeWithText("书籍编辑").assertIsDisplayed()
         assertEquals(readingBounds, compose.onNodeWithTag("profile-history").fetchSemanticsNode().boundsInRoot)
         capture("profile-permissions-large-dark")

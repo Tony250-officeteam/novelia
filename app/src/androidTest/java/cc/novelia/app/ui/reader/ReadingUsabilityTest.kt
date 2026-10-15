@@ -11,19 +11,11 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Density
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.navigation.compose.rememberNavController
 import androidx.test.platform.app.InstrumentationRegistry
-import cc.novelia.app.NoveliaApplication
 import cc.novelia.app.data.model.ReaderSettings
 import cc.novelia.app.ui.account.AccountPermissionsCard
-import cc.novelia.app.ui.community.CommentMoreMenu
-import cc.novelia.app.ui.community.blockCommentUser
 import cc.novelia.app.ui.components.base.ChoiceRow
-import cc.novelia.app.ui.navigation.AppController
 import cc.novelia.app.ui.theme.NoveliaTheme
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -33,14 +25,14 @@ class ReadingUsabilityTest {
     @get:Rule val compose = createComposeRule()
 
     @Test fun permissionsStayCollapsedUntilRequestedAndKeepAnAccessibleTarget() {
-        compose.setContent { NoveliaTheme("light") { AccountPermissionsCard("阅读者", canPost = true, canEdit = false) } }
-        compose.onNodeWithText("社区发布").assertDoesNotExist()
+        compose.setContent { NoveliaTheme("light") { AccountPermissionsCard("阅读者", canComment = true, canEdit = false) } }
+        compose.onNodeWithText("发表评论").assertDoesNotExist()
         compose.onNodeWithTag("account-permissions-toggle").assertHeightIsAtLeast(48.dp).performClick()
-        compose.onNodeWithText("社区发布").assertIsDisplayed()
+        compose.onNodeWithText("发表评论").assertIsDisplayed()
         compose.onNodeWithText("书籍编辑").assertIsDisplayed()
         capture("account-permissions", popup = true)
         compose.onNodeWithContentDescription("收起账号权限").performClick()
-        compose.onNodeWithText("社区发布").assertDoesNotExist()
+        compose.onNodeWithText("发表评论").assertDoesNotExist()
     }
 
     @Test fun preferencesGroupAdvancedSettingsAndKeepPagingSwitchesIndependent() {
@@ -120,36 +112,6 @@ class ReadingUsabilityTest {
         capture("choice-groups-large-font")
         compose.onNodeWithText("纸张").performClick().assertIsSelected()
         compose.runOnIdle { assertEquals(1, selected) }
-    }
-
-    @Test fun commentBlockLivesInMoreMenuAndUndoRestoresTheUser() {
-        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as NoveliaApplication
-        runBlocking { app.initialization.await() }
-        val previous = app.store.state.value
-        val username = "屏蔽撤销测试用户"
-        try {
-            app.store.update { it.copy(blockedUsers = it.blockedUsers - username) }
-            compose.setContent { NoveliaTheme("light") {
-                val nav = rememberNavController()
-                val scope = rememberCoroutineScope()
-                val feedback = remember { SnackbarHostState() }
-                val controller = remember { AppController(app, nav, scope, feedback) }
-                val state by app.store.state.collectAsStateWithLifecycle()
-                Column {
-                    if(username !in state.blockedUsers) CommentMoreMenu(username, false, {},
-                        onBlock = { scope.launch { blockCommentUser(controller, feedback, username) } })
-                    SnackbarHost(feedback)
-                }
-            } }
-            compose.onNodeWithText("屏蔽用户").assertDoesNotExist()
-            compose.onNodeWithContentDescription("$username 的评论更多操作").assertWidthIsAtLeast(48.dp).assertHeightIsAtLeast(48.dp).performClick()
-            compose.onNodeWithText("屏蔽用户").performClick()
-            compose.onNodeWithContentDescription("$username 的评论更多操作").assertDoesNotExist()
-            compose.runOnIdle { assertTrue(username in app.store.state.value.blockedUsers) }
-            compose.onNodeWithText("撤销").performClick()
-            compose.onNodeWithContentDescription("$username 的评论更多操作").assertIsDisplayed()
-            compose.runOnIdle { assertFalse(username in app.store.state.value.blockedUsers) }
-        } finally { app.store.update { previous } }
     }
 
     private fun capture(name: String, popup: Boolean = false) {

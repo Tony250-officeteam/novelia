@@ -20,7 +20,6 @@ class ClipboardLinksTest {
             "novel/syosetu/n1234" to "book/syosetu/n1234",
             "novel/syosetu/n1234/20" to "reader/syosetu/n1234/20",
             "wenku/abc123" to "book/wenku/abc123",
-            "forum/abc123" to "article/abc123",
             "forum" to "community",
             "setting" to "settings",
             "read-history" to "history",
@@ -40,6 +39,7 @@ class ClipboardLinksTest {
     @Test fun queriesAndAnchorsArePreservedInTheInAppBrowser() {
         listOf(
             "https://n.novelia.cc/novel?query=cat%26dog&page=2",
+            "https://n.novelia.cc/forum/abc123",
             "https://n.novelia.cc/forum/abc123#comment-456",
             "https://n.novelia.cc/novel/syosetu/n1234?source=%E5%B0%8F%E8%AF%B4",
         ).forEach { url ->

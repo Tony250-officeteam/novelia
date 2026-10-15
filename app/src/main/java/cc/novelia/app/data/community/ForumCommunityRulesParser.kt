@@ -60,7 +60,9 @@ internal object ForumCommunityRulesParser {
         require(headers.size == 5 && headers.all { it.normalName() == "th" && it.getAllElements().drop(1).all { child -> child.normalName() == "br" } })
         require(body.children().size == 1 && body.child(0).normalName() == "tr")
         val row = body.child(0)
-        require(row.attr("v-for") == "permission in permissions" && row.attr(":key") == "permission.name")
+        require(row.attr("v-for") == "permission in permissions" && row.attr(":key") in setOf(
+            "permission.name", "`${'$'}{permission.site}-${'$'}{permission.name}`"
+        ))
         val cells = row.children()
         require(cells.map { it.normalName() } == listOf("td", "th", "td"))
         require(cells[0].children().isEmpty() && cells[0].text() == "{{ permission.site }}")

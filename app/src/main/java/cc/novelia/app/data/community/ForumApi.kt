@@ -10,15 +10,16 @@ import kotlinx.coroutines.withContext
 import okhttp3.Response
 import cc.novelia.app.data.network.NoveliaApi
 
-class ForumApi(private val http: NoveliaApi) {
+class ForumApi(private val http: NoveliaApi, onBlacklistChanged: () -> Unit = {}) {
     init { require(http.session == null || (http.session as? ApiSession)?.target == AuthTarget.FORUM) { "论坛必须使用独立登录会话" } }
+    val blacklist = ForumBlacklistApi(http, onBlacklistChanged)
     suspend fun categories() = get<List<ForumCategory>>("category/").sortedBy { it.displayOrder }
     private fun paging(page: Int, pageSize: Int): Map<String, String> {
         require(page >= 0 && page < Int.MAX_VALUE && pageSize in 1..100)
         return mapOf("page" to (page + 1).toString(), "page_size" to pageSize.toString())
     }
     suspend fun posts(page: Int, category: String, query: String = "", sort: String = "active", tagIds: List<Long> = emptyList(), pageSize: Int = 20): ForumPage<ForumPost> {
-        require(sort in setOf("active", "newest", "views", "comments"))
+        require(sort in ForumSort.entries.map { it.apiValue })
         return get("post/", paging(page, pageSize) + buildMap {
             put("category", category); put("q", query); put("sort", sort)
             if (tagIds.isNotEmpty()) put("tag", tagIds.distinct().joinToString(","))

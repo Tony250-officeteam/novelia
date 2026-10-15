@@ -1,6 +1,5 @@
 package cc.novelia.app.data.markdown
 
-import cc.novelia.app.data.community.ForumLinks
 import cc.novelia.app.data.catalog.BookLinks
 import cc.novelia.app.data.catalog.SiteLink
 import cc.novelia.app.data.catalog.SiteUrls
@@ -39,7 +38,6 @@ object MarkdownLinks {
     }.getOrNull()
 
     fun commentDocumentUrl(site: String): String? = when {
-        site.startsWith("article-") -> ForumLinks.articleUrl(site.removePrefix("article-"))
         site.startsWith("wenku-") -> "${base}wenku/${site.removePrefix("wenku-")}"
         site.startsWith("web-") -> site.removePrefix("web-").split('-', limit = 2).takeIf { it.size == 2 }
             ?.let { "${base}novel/${it[0]}/${it[1]}" }
@@ -63,6 +61,7 @@ object MarkdownLinks {
         if (uri.host.equals("forum.novelia.cc", true)) return if(uri.rawQuery != null) null else when(uri.path.trimEnd('/')) {
             "" -> "community"
             "/rules" -> "forum-rules"
+            "/settings", "/settings/blacklist" -> "forum-blacklist"
             else -> null
         }
         // 站点列表页使用 WebView，保留 URL 中的筛选和分页参数。

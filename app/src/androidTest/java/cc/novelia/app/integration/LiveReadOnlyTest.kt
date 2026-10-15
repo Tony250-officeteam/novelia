@@ -8,10 +8,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import cc.novelia.app.MainActivity
 import cc.novelia.app.NoveliaApplication
-import cc.novelia.app.data.community.Article
 import cc.novelia.app.data.model.BookRef
-import cc.novelia.app.data.community.Comment
-import cc.novelia.app.data.model.Page
 import cc.novelia.app.data.model.WebDetail
 import cc.novelia.app.data.model.WenkuDetail
 import cc.novelia.app.data.network.NoveliaApi
@@ -43,9 +40,6 @@ class LiveReadOnlyTest {
         val detail = api.get<WebDetail>("novel/syosetu/n6093en"); assertTrue(detail.toc.isNotEmpty())
         val chapter = api.chapter(BookRef("syosetu", "n6093en"), "1"); assertTrue(chapter.paragraphs.isNotEmpty())
         api.get<WenkuDetail>("wenku/${wenku.items.first().id}")
-        val articles = api.get<Page<Article>>("article", mapOf("page" to "0", "pageSize" to "2", "category" to "Guide")); assertTrue(articles.items.isNotEmpty())
-        api.get<Article>("article/${articles.items.first().id}")
-        api.get<Page<Comment>>("comment", mapOf("site" to "web-syosetu-n6093en", "page" to "0", "pageSize" to "2"))
         compose.runOnIdle { app.store.update { it.copy(theme = "light") } }
         compose.onNodeWithText("发现").performClick()
         compose.waitUntil(30000) { compose.onAllNodesWithText("热门网络小说").fetchSemanticsNodes().isNotEmpty() }

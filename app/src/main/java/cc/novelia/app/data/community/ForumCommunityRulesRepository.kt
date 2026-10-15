@@ -18,7 +18,8 @@ class ForumCommunityRulesRepository(
 ) {
     init { require(site.session == null && source.session == null) { "公开守则不使用登录会话" } }
     private val mutex = Mutex()
-    private val key = hashName("forum-community-rules-v1")
+    // 升级时淘汰旧权限副本，首次离线也展示已经核对的 30 天规则。
+    private val key = hashName("forum-community-rules-v2")
 
     suspend fun cached(): ForumCommunityRules = withContext(Dispatchers.IO) {
         runCatching { cache.read(key)?.let { appJson.decodeFromString<ForumCommunityRules>(it) } }

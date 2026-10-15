@@ -108,6 +108,21 @@ class ForumCommentThreadTest {
         compose.onNodeWithContentDescription("下一页").performScrollTo().assertIsEnabled()
     }
 
+    @Test fun accountBlockedAuthorsStayHiddenInCachedReplyPreviews() {
+        val replies = ForumPage(2, listOf(reply(12, "账号拉黑的回复").copy(authorBlocked = true), reply(13, "可见回复")))
+        val preview = root.copy(replyCount = 2, replies = replies)
+        var requests = 0
+        compose.setContent { NoveliaTheme("light") {
+            ForumCommentThread(5, preview, null, 0, loadReplies = { requests++; replies }) { comment, _, actions ->
+                Column { Text(comment.content); actions?.invoke() }
+            }
+        } }
+        compose.onNodeWithText("查看 2 条回复").performClick()
+        compose.onNodeWithText("账号拉黑的回复").assertDoesNotExist()
+        compose.onNodeWithText("可见回复").assertExists()
+        compose.runOnIdle { assertEquals(0, requests) }
+    }
+
     @Test fun failedReplyLoadCanBeRetriedWithoutLosingTheRoot() {
         var attempts = 0
         compose.setContent {

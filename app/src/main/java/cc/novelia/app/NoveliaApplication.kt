@@ -47,6 +47,9 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import cc.novelia.app.startup.StartupLoader
@@ -84,8 +87,11 @@ class NoveliaApplication : Application(), ImageLoaderFactory {
     val appReleaseDownloads by lazy { cc.novelia.app.data.appupdate.AppReleaseDownloader(this) }
     private var appUpdateCheck: Job? = null
     val api by lazy { NoveliaApi(session, transport = httpTransport, onMutation = { metadataCache.invalidate(it) }, onKeywords = { tags -> keywords.enqueueObservation(tags) }) }
-    val forumApi by lazy { ForumApi(NoveliaApi(forumSession, ForumApi.BASE_URL, httpTransport)) }
-    val novelCommentApi by lazy { NovelCommentApi(NoveliaApi(session, ForumApi.BASE_URL, httpTransport)) }
+    private val mutableForumBlacklistRevision = MutableStateFlow(0L)
+    val forumBlacklistRevision = mutableForumBlacklistRevision.asStateFlow()
+    private fun blacklistChanged() { mutableForumBlacklistRevision.update { it + 1 } }
+    val forumApi by lazy { ForumApi(NoveliaApi(forumSession, ForumApi.BASE_URL, httpTransport), ::blacklistChanged) }
+    val novelCommentApi by lazy { NovelCommentApi(NoveliaApi(session, ForumApi.BASE_URL, httpTransport), ::blacklistChanged) }
     val forumAccountApi by lazy { ForumAccountApi(NoveliaApi(forumSession, ForumAccountApi.BASE_URL, httpTransport)) }
     val forumCommunityRules by lazy { ForumCommunityRulesRepository(
         MetadataCache(File(filesDir, "forum-community-rules"), 512 * 1024L),

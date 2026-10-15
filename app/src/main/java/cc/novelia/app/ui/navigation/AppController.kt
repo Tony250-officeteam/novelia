@@ -229,11 +229,10 @@ class AppController(val app: NoveliaApplication, val nav: NavHostController, val
     fun requireLogin(action: () -> Unit) { if(session.profile.value == null) { afterLogin = action; go("login") } else action() }
     fun requireForumLogin(action: () -> Unit) { if(forumSession.profile.value == null) { afterLogin = action; go("forum-login") } else action() }
     suspend fun article(id: String): Article {
-        val auth = if(ForumLinks.postId(id) != null) forumSession else session
-        val binding = auth.capture()
-        val article = (ForumLinks.postId(id)?.let { forumApi.post(it).article(forumApi.categories()) }
-            ?: api.get<Article>("article/$id")).copy(id = id)
-        auth.ensureCurrent(binding)
+        val postId = requireNotNull(ForumLinks.postId(id)) { "帖子 ID 无效" }
+        val binding = forumSession.capture()
+        val article = forumApi.post(postId).article(forumApi.categories())
+        forumSession.ensureCurrent(binding)
         return article
     }
     fun external(url: String) {

@@ -31,7 +31,6 @@ import cc.novelia.app.data.library.ReadingDestination
 import cc.novelia.app.data.library.offlineRangeLabel
 import cc.novelia.app.data.library.readingDestination
 import cc.novelia.app.data.library.resumeDestination
-import cc.novelia.app.data.community.Article
 import cc.novelia.app.data.model.BookCard
 import cc.novelia.app.data.model.BookRef
 import cc.novelia.app.data.model.TocItem

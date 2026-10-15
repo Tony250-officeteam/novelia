@@ -10,12 +10,14 @@ import cc.novelia.app.data.network.NoveliaApi
 import cc.novelia.app.data.network.encodeSegment
 
 /** 小说讨论托管在论坛，但读取和写入都使用小说账号（app=n）的会话。 */
-class NovelCommentApi(private val http: NoveliaApi) {
+class NovelCommentApi(private val http: NoveliaApi, onBlacklistChanged: () -> Unit = {}) {
     init {
         require(http.session == null || (http.session as? ApiSession)?.target == AuthTarget.NOVEL) {
             "小说评论必须使用小说登录会话"
         }
     }
+
+    val blacklist = ForumBlacklistApi(http, onBlacklistChanged)
 
     suspend fun comments(subjectKey: String, page: Int) =
         get<ForumPage<ForumComment>>(subjectPath(subjectKey), paging(page, 20))
