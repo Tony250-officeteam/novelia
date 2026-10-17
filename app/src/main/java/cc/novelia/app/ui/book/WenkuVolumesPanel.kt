@@ -37,6 +37,7 @@ import cc.novelia.app.ui.components.book.BookRow
 import cc.novelia.app.ui.components.base.EmptyState
 import cc.novelia.app.ui.components.base.MenuRow
 import cc.novelia.app.ui.components.base.SectionTitle
+import cc.novelia.app.ui.components.media.IllustrationViewer
 import cc.novelia.app.ui.downloads.DownloadSheet
 import cc.novelia.app.ui.navigation.AppController
 import cc.novelia.app.ui.theme.AppMotion
@@ -53,6 +54,7 @@ import cc.novelia.app.ui.theme.appReducedMotion
     var selection by rememberSaveable(book.ref.key, account) { mutableStateOf(emptyList<String>()) }
     var download by remember(book.ref.key, account) { mutableStateOf(emptyList<String>()) }
     var opening by remember(book.ref.key) { mutableStateOf<String?>(null) }
+    var expandedCover by remember(book.ref.key) { mutableStateOf<String?>(null) }
     fun openVolume(volumeId: String) {
         if(opening != null) return
         opening = volumeId
@@ -132,7 +134,9 @@ import cc.novelia.app.ui.theme.appReducedMotion
             }
             if(detail.volumes.isNotEmpty()) item { SectionTitle("出版卷目") }
             items(detail.volumes, key = { "published-${it.asin}" }, contentType = { "book" }) { volume ->
-                BookRow(BookCard(book.ref, volume.titleZh ?: volume.title, volume.title, volume.cover, volume.publisher.orEmpty()), { volume.coverHires?.let(c::external) },
+                BookRow(BookCard(book.ref, volume.titleZh ?: volume.title, volume.title, volume.cover, volume.publisher.orEmpty()), {
+                    expandedCover = volume.coverHires?.takeIf(String::isNotBlank) ?: volume.cover?.takeIf(String::isNotBlank)
+                },
                     modifier = if(reducedMotion) Modifier else Modifier.animateItem(fadeInSpec = tween(AppMotion.Release), placementSpec = tween(AppMotion.Standard), fadeOutSpec = tween(AppMotion.Exit)),
                     showReadingProgress = false, showBookMetadata = false)
             }
@@ -145,4 +149,5 @@ import cc.novelia.app.ui.theme.appReducedMotion
         }
     }
     if(download.isNotEmpty()) DownloadSheet(c, book, download, onQueued = { selecting = false; selection = emptyList() }) { download = emptyList() }
+    expandedCover?.let { IllustrationViewer(it, imageLabel = "封面") { expandedCover = null } }
 }

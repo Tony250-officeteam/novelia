@@ -41,7 +41,7 @@ import kotlin.math.roundToInt
 import cc.novelia.app.ui.components.base.AppDialog
 
 @Composable
-internal fun IllustrationViewer(model: Any, onDismiss: () -> Unit) {
+internal fun IllustrationViewer(model: Any, imageLabel: String = "插图", onDismiss: () -> Unit) {
     val context = LocalContext.current
     var retry by remember(model) { mutableIntStateOf(0) }
     // 限制图片解码内存，同时保留查看插图所需的分辨率。
@@ -72,8 +72,8 @@ internal fun IllustrationViewer(model: Any, onDismiss: () -> Unit) {
         Surface(Modifier.fillMaxSize(), color = Color(0xFF080B0A), contentColor = Color.White) {
             Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("插图", Modifier.weight(1f).padding(start = 8.dp), style = MaterialTheme.typography.titleMedium)
-                    AppIconButton(onClick = onDismiss) { Icon(Icons.Outlined.Close, "关闭插图") }
+                    Text(imageLabel, Modifier.weight(1f).padding(start = 8.dp), style = MaterialTheme.typography.titleMedium)
+                    AppIconButton(onClick = onDismiss) { Icon(Icons.Outlined.Close, "关闭${imageLabel}") }
                 }
                 Box(Modifier.weight(1f).fillMaxWidth().clipToBounds().background(Color.Black)
                     .onSizeChanged {
@@ -91,7 +91,7 @@ internal fun IllustrationViewer(model: Any, onDismiss: () -> Unit) {
                         })
                     }, contentAlignment = Alignment.Center) {
                     // Coil 将等价请求视为同一模型，重试需创建新的 painter。
-                    key(retry) { AsyncImage(request, "放大的小说插图", Modifier.fillMaxSize().graphicsLayer {
+                    key(retry) { AsyncImage(request, "放大的小说${imageLabel}", Modifier.fillMaxSize().graphicsLayer {
                         scaleX = transform.scale; scaleY = transform.scale
                         translationX = transform.offset.x; translationY = transform.offset.y
                     }, contentScale = ContentScale.Fit,
@@ -102,26 +102,26 @@ internal fun IllustrationViewer(model: Any, onDismiss: () -> Unit) {
                         },
                         onError = { loading = false; failed = true },
                     ) }
-                    if(loading) { if(reducedMotion) Text("正在加载插图…") else CircularProgressIndicator(Modifier.size(32.dp), color = Color.White) }
+                    if(loading) { if(reducedMotion) Text("正在加载${imageLabel}…") else CircularProgressIndicator(Modifier.size(32.dp), color = Color.White) }
                     if(failed) Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("插图暂时无法加载", color = Color.White)
+                        Text("${imageLabel}暂时无法加载", color = Color.White)
                         AppFilledTonalButton(onClick = { retry++ }) { Text("重试") }
                     }
                 }
                 val buttonColors = IconButtonDefaults.iconButtonColors(contentColor = Color.White, disabledContentColor = Color.White.copy(alpha = .35f))
                 if(eInk && transform.scale > 1f) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                    listOf(Triple(Icons.Outlined.KeyboardArrowUp, "查看插图上方", Offset(0f, viewport.height * .7f)),
-                        Triple(Icons.Outlined.KeyboardArrowDown, "查看插图下方", Offset(0f, -viewport.height * .7f)),
-                        Triple(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, "查看插图左侧", Offset(viewport.width * .7f, 0f)),
-                        Triple(Icons.AutoMirrored.Outlined.KeyboardArrowRight, "查看插图右侧", Offset(-viewport.width * .7f, 0f))).forEach { (icon, label, pan) ->
+                    listOf(Triple(Icons.Outlined.KeyboardArrowUp, "查看${imageLabel}上方", Offset(0f, viewport.height * .7f)),
+                        Triple(Icons.Outlined.KeyboardArrowDown, "查看${imageLabel}下方", Offset(0f, -viewport.height * .7f)),
+                        Triple(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, "查看${imageLabel}左侧", Offset(viewport.width * .7f, 0f)),
+                        Triple(Icons.AutoMirrored.Outlined.KeyboardArrowRight, "查看${imageLabel}右侧", Offset(-viewport.width * .7f, 0f))).forEach { (icon, label, pan) ->
                         AppIconButton(onClick = { zoom(1f, pan = pan) }, enabled = ready, colors = buttonColors) { Icon(icon, label) }
                     }
                 }
                 Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
-                    AppIconButton(onClick = { zoom(1 / 1.5f) }, enabled = ready && transform.scale > 1f, colors = buttonColors) { Icon(Icons.Outlined.ZoomOut, "缩小插图") }
+                    AppIconButton(onClick = { zoom(1 / 1.5f) }, enabled = ready && transform.scale > 1f, colors = buttonColors) { Icon(Icons.Outlined.ZoomOut, "缩小${imageLabel}") }
                     Text("${(transform.scale * 100).roundToInt()}%", style = MaterialTheme.typography.labelLarge)
-                    AppIconButton(onClick = { zoom(1.5f) }, enabled = ready && transform.scale < 5f, colors = buttonColors) { Icon(Icons.Outlined.ZoomIn, "放大插图") }
-                    AppIconButton(onClick = { transform = IllustrationTransform() }, enabled = ready && transform.scale > 1f, colors = buttonColors) { Icon(Icons.Outlined.RestartAlt, "还原插图") }
+                    AppIconButton(onClick = { zoom(1.5f) }, enabled = ready && transform.scale < 5f, colors = buttonColors) { Icon(Icons.Outlined.ZoomIn, "放大${imageLabel}") }
+                    AppIconButton(onClick = { transform = IllustrationTransform() }, enabled = ready && transform.scale > 1f, colors = buttonColors) { Icon(Icons.Outlined.RestartAlt, "还原${imageLabel}") }
                 }
             }
         }

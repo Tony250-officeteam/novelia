@@ -7,6 +7,7 @@ import cc.novelia.app.ui.components.base.AppIconButton
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -45,6 +46,7 @@ import cc.novelia.app.ui.components.book.BookCover
 import cc.novelia.app.ui.components.base.EmptyState
 import cc.novelia.app.ui.components.base.MenuRow
 import cc.novelia.app.ui.components.media.MetaParagraph
+import cc.novelia.app.ui.components.media.IllustrationViewer
 import cc.novelia.app.ui.components.base.Screen
 import cc.novelia.app.ui.components.base.SectionTitle
 import cc.novelia.app.ui.components.book.TagList
@@ -272,13 +274,19 @@ import kotlinx.coroutines.withContext
 }
 @Composable private fun Stat(label: String, value: String) { Column(horizontalAlignment = Alignment.CenterHorizontally) { Text(value, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary); Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
 @Composable private fun BookHero(book: BookCard, subtitle: String, bottomPadding: Dp = 20.dp, actions: (@Composable () -> Unit)? = null) {
+    val cover = book.cover?.takeIf { book.ref.isWenku && it.isNotBlank() }
+    var expandedCover by remember(book.ref, cover) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = bottomPadding), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-            BookCover(book, Modifier.width(94.dp).height(134.dp))
+            BookCover(book, Modifier.width(94.dp).height(134.dp).then(
+                if(cover != null) Modifier.combinedClickable(onClick = {},
+                    onLongClickLabel = "放大查看封面", onLongClick = { expandedCover = true }) else Modifier
+            ))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) { Text(book.title, style = MaterialTheme.typography.titleLarge); Text(subtitle, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary); Text(book.originalTitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
         actions?.invoke()
     }
+    if(expandedCover && cover != null) IllustrationViewer(cover, imageLabel = "封面") { expandedCover = false }
 }
 @Composable fun TocPanel(c: AppController, ref: BookRef, toc: List<TocItem>, current: String?, onRead: (String) -> Unit) {
     var search by rememberSaveable(ref.key) { mutableStateOf("") }; var reversed by rememberSaveable(ref.key) { mutableStateOf(false) }
