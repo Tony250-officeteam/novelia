@@ -131,7 +131,8 @@ private class SecondaryOpacity(private val alpha: Float) : CharacterStyle(), Upd
  * 拼接标签、缩进和语言分隔符的顺序必须与 paragraphPartStarts 一致，才能复用搜索字符锚点。
  * 返回的段落、布局与页表属于同一测量快照，显示时不能与新一轮内容混用。
  */
-internal fun measureEInkChapter(paragraphs: List<ReadingParagraph>, settings: ReaderSettings, width: Int, height: Int, density: Float, fontScale: Float, checkCancelled: () -> Unit = {}): MeasuredEInkChapter {
+internal fun measureEInkChapter(paragraphs: List<ReadingParagraph>, settings: ReaderSettings, width: Int, height: Int, density: Float, fontScale: Float,
+    readerTypeface: Typeface = Typeface.SANS_SERIF, checkCancelled: () -> Unit = {}): MeasuredEInkChapter {
     val layouts = mutableMapOf<Int, StaticLayout>()
     val lines = mutableListOf<PageLine>()
     paragraphs.forEachIndexed { index, paragraph ->
@@ -157,7 +158,7 @@ internal fun measureEInkChapter(paragraphs: List<ReadingParagraph>, settings: Re
             val paint = TextPaint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
                 textSize = settings.fontSize * density * fontScale
                 color = android.graphics.Color.BLACK
-                typeface = Typeface.create(Typeface.SANS_SERIF, if (settings.weight) Typeface.BOLD else Typeface.NORMAL)
+                typeface = Typeface.create(readerTypeface, if (settings.weight) Typeface.BOLD else Typeface.NORMAL)
             }
             val layout = StaticLayout.Builder.obtain(text, 0, text.length, paint, width)
                 .setAlignment(Layout.Alignment.ALIGN_NORMAL).setIncludePad(false)
@@ -188,6 +189,7 @@ internal fun measureEInkChapter(paragraphs: List<ReadingParagraph>, settings: Re
 ) {
     val density = LocalDensity.current
     val context = LocalContext.current
+    val font = rememberReaderFont(settings)
     var expandedImage by remember { mutableStateOf<Any?>(null) }
     val animate = !settings.eInkMode && !LocalEInkMode.current && !LocalReducedMotion.current && ValueAnimator.areAnimatorsEnabled()
     val pageShift = remember { Animatable(0f) }
@@ -216,15 +218,15 @@ internal fun measureEInkChapter(paragraphs: List<ReadingParagraph>, settings: Re
         val width = constraints.maxWidth.coerceAtLeast(1)
         val height = constraints.maxHeight.coerceAtLeast(1)
         // 仅在文字样式、正文或视口变化时重新排版，翻页复用全部测量布局。
-        val typography = listOf(settings.fontSize, settings.lineHeight, settings.paragraphSpacing, settings.weight, settings.indent, settings.parallel, settings.underline, settings.secondaryAlpha)
+        val typography = listOf(settings.fontSize, settings.lineHeight, settings.paragraphSpacing, settings.weight, settings.indent, settings.parallel, settings.underline, settings.secondaryAlpha, font.typeface, font.loading)
         val input = EInkMeasureInput(paragraphs, typography, width, height, density.density, density.fontScale)
         val measured by produceState<EInkMeasurement?>(null, input) {
             // 测量前合并连续的视口变化和重复偏好更新。
             if(value != null) delay(120)
-            if (width != Constraints.Infinity && height != Constraints.Infinity) {
+            if (!font.loading && width != Constraints.Infinity && height != Constraints.Infinity) {
                 val next = withContext(Dispatchers.Default) {
                     val jobContext = currentCoroutineContext()
-                    measureEInkChapter(paragraphs, settings, width, height, density.density, density.fontScale) { jobContext.ensureActive() }
+                    measureEInkChapter(paragraphs, settings, width, height, density.density, density.fontScale, font.typeface) { jobContext.ensureActive() }
                 }
                 state.install(next.pages, next.paragraphs)
                 value = EInkMeasurement(input, next)

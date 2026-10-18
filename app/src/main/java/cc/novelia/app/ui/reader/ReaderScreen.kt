@@ -110,6 +110,7 @@ import kotlinx.serialization.encodeToString
 @Composable private fun ReaderContent(c: AppController, ref: BookRef, chapterId: String, wide: Boolean) {
     val local by c.store.state.collectAsStateWithLifecycle()
     val settings = local.bookSettings[ref.key] ?: local.reader
+    val readerFont = rememberReaderFont(settings)
     // 导航过渡期间，离开的阅读器仍可能处于组合中；此时完成的刷新
     // 不得消费新阅读器的搜索定位或章末跳转标记。
     val readerEntry = remember(ref, chapterId) { c.nav.currentBackStackEntry }
@@ -253,7 +254,7 @@ import kotlinx.serialization.encodeToString
         // 触摸状态和动画偏好在当前帧立即生效，即使旧回弹尚未结束。
         val chapterPullOffset = if(eInkInteraction) 0f else if(chapterPull.active || reducedMotion) chapterPull.offset else chapterPullReturn.value
         val eInk = remember { EInkPageState(position) }
-        val positionLayout = rememberReaderPositionLayout(position, paragraphs, settings, scroll, eInk)
+        val positionLayout = rememberReaderPositionLayout(position, paragraphs, settings, scroll, eInk, readerFont.typeface)
         val positionState = positionLayout.state
         val layoutGeneration = positionLayout.layoutGeneration
         val scrollLayouts = positionLayout.scrollLayouts
@@ -620,7 +621,7 @@ import kotlinx.serialization.encodeToString
                 , contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(settings.resolvedParagraphSpacing.dp)) {
                 item("title", contentType = "title") {
                     Column(Modifier.fillMaxWidth().clickable(onClickLabel = "显示或收起阅读工具栏", onClick = tapNavigation::click)) {
-                        Text(chapter.title, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineMedium, color = foreground)
+                        Text(chapter.title, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineMedium, color = foreground, fontFamily = readerFont.family)
                         Spacer(Modifier.height(12.dp))
                         Text(if(ref.isLocal) "本地小说" else (providers[ref.provider].orEmpty() + " · " + if(settings.mode == "jp") "日文原文" else "机翻阅读"), style = MaterialTheme.typography.labelMedium, color = foreground.copy(alpha = .65f))
                         if(hasFallback) Text("部分段落暂无所选译文，显示原文。", style = MaterialTheme.typography.labelMedium, color = foreground.copy(alpha = .7f))
@@ -634,7 +635,7 @@ import kotlinx.serialization.encodeToString
                         paragraph.imageUrl ?: paragraph.localImageId?.takeIf { ref.isLocal }?.let { c.store.documentImage(ref.id, it) }
                     }
                     if(image != null) ReaderIllustration(image, foreground, tapNavigation::click)
-                    else ReaderTextParagraph(paragraph, settings, layoutGeneration, foreground, tapNavigation::click, { selected = paragraph }, activeMatch?.takeIf { it.paragraph == paragraphIndex }) { part, lines ->
+                    else ReaderTextParagraph(paragraph, settings, layoutGeneration, foreground, tapNavigation::click, { selected = paragraph }, activeMatch?.takeIf { it.paragraph == paragraphIndex }, fontFamily = readerFont.family) { part, lines ->
                         val existing = scrollLayouts[paragraph.index] ?: ParagraphScrollLayout()
                         if(existing.parts[part] != lines) scrollLayouts[paragraph.index] = existing.copy(parts = existing.parts + (part to lines))
                     }

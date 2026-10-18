@@ -2,6 +2,7 @@ package cc.novelia.app.reader
 
 import cc.novelia.app.data.model.ReaderPagingState
 import cc.novelia.app.data.model.ReaderSettings
+import cc.novelia.app.data.model.fontLabel
 
 internal data class ReaderSettingDifference(val label: String, val book: String, val default: String)
 
@@ -10,6 +11,7 @@ internal fun readerSettingsDifferences(book: ReaderSettings, defaults: ReaderSet
     fun ReaderSettings.values(): Map<String, String> = linkedMapOf(
         "显示语言" to when(mode) { "jp" -> "日文"; "zh-jp" -> "中日"; "jp-zh" -> "日中"; else -> "中文" },
         "译文优先顺序" to engines.joinToString(" → "), "并列展示译文" to parallel.label(),
+        "阅读字体" to fontLabel,
         "字号" to "$fontSize sp", "行距" to "$lineHeight 倍", "段距" to "$resolvedParagraphSpacing dp",
         "加粗文字" to weight.label(), "内容宽度" to "$width dp", "首行缩进" to indent.label(),
         "阅读主题" to when(resolvedTheme) { "paper" -> "纸张"; "light" -> "浅色"; "dark" -> "深色"; "monochrome" -> "黑白"; "custom" -> "自定义"; else -> "跟随应用" },

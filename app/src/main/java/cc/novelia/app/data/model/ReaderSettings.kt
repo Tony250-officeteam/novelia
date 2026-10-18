@@ -45,7 +45,10 @@ import kotlinx.serialization.Serializable
     val hideStatusBar: Boolean = false,
     // 点击区域独立于滑动手势和电子纸预设，旧设置保持整页点击工具栏的行为。
     val tapPageTurn: Boolean = false,
-    val customColors: ReaderCustomColors = ReaderCustomColors()
+    val customColors: ReaderCustomColors = ReaderCustomColors(),
+    // 字体文件仅保存在本机；切换系统字体时保留已导入字体，便于切回。
+    val fontFamily: String = "system",
+    val customFont: ReaderCustomFont? = null
 ) {
     companion object {
         const val MIN_LINE_HEIGHT = .5f

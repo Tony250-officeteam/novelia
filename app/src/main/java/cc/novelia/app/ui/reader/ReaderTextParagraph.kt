@@ -14,6 +14,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -23,6 +24,7 @@ import kotlin.math.roundToInt
 
 
 @Composable internal fun ReaderTextParagraph(paragraph: ReadingParagraph, settings: ReaderSettings, layoutGeneration: Any, foreground: Color, onToggleMenu: () -> Unit, onSelect: () -> Unit, activeMatch: ReadingTextMatch?,
+    fontFamily: FontFamily = rememberReaderFont(settings).family,
     onLayout: (Int, List<ReadingAnchorLine>) -> Unit) {
     val starts = remember(paragraph, settings.indent, settings.parallel) { paragraphPartStarts(paragraph, settings) }
     val latestLayout by rememberUpdatedState(onLayout)
@@ -58,6 +60,7 @@ import kotlin.math.roundToInt
                 fontSize = readerPartFontSize(settings, part.secondary).sp,
                 lineHeight = readerPartLineHeight(settings, part.secondary).sp,
                 fontWeight = if(settings.weight) FontWeight.Bold else FontWeight.Normal,
+                fontFamily = fontFamily,
                 color = foreground.copy(alpha = if(part.secondary) settings.secondaryAlpha else 1f),
                 textDecoration = if(settings.underline && part.secondary) TextDecoration.Underline else null)
         }

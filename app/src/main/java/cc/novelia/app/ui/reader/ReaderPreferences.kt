@@ -74,6 +74,7 @@ import kotlin.math.roundToInt
                 when(tab) {
                     0 -> {
                         ReaderPreferenceHeading("文字与主题")
+                        ReaderFontPreference(value, defaults, onChange)
                         ReaderSlider("字号 ${value.fontSize.toInt()}", value.fontSize, 14f..32f,
                             defaultValue = defaults?.fontSize, livePreviewStep = if(livePreview) .5f else null) { onChange(value.copy(fontSize = it)) }
                         ReaderSlider("行距 ${"%.1f".format(value.lineHeight)}", value.lineHeight, ReaderSettings.LINE_HEIGHT_RANGE,

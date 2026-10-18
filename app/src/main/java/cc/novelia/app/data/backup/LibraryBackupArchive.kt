@@ -6,6 +6,7 @@ import cc.novelia.app.data.catalog.KeywordLibraryFormat
 import cc.novelia.app.data.model.LibraryState
 import cc.novelia.app.data.model.LocalDocument
 import cc.novelia.app.data.model.ReaderSettings
+import cc.novelia.app.data.model.validFont
 import cc.novelia.app.data.storage.appJson
 import cc.novelia.app.data.webdav.SyncReplica
 import cc.novelia.app.data.library.withMigratedReadingHistory
@@ -132,6 +133,7 @@ internal object LibraryBackupArchive {
         require(state.keywordLimit == null || state.keywordLimit > 0) { "备份标签数量上限无效" }
         (listOf(state.reader) + state.bookSettings.values).forEach { settings ->
             require(settings.theme in ReaderSettings.THEMES && settings.customColors.valid) { "备份阅读配色无效" }
+            require(settings.validFont) { "备份阅读字体设置无效" }
             require(settings.fontSize in 10f..60f && settings.lineHeight in ReaderSettings.MIN_LINE_HEIGHT..4f && settings.width in 200f..2000f &&
                 settings.engines.size == 3 && settings.engines.toSet() == setOf("sakura", "gpt", "youdao") && settings.speechRate in .1f..5f &&
                 settings.secondaryAlpha in 0f..1f && (settings.brightness == -1f || settings.brightness in 0f..1f)) { "备份阅读设置无效" }

@@ -40,6 +40,7 @@ private fun hex(value: Long) = "#%06X".format(value)
                     Text("阅读配色预览", Modifier.padding(12.dp), style = MaterialTheme.typography.labelLarge)
                 }
                 Text("这是一行句子", Modifier.padding(16.dp), fontSize = settings.fontSize.sp,
+                    fontFamily = rememberReaderFont(settings).family,
                     lineHeight = (settings.fontSize * settings.lineHeight).sp)
             }
         }
