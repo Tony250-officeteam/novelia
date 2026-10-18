@@ -17,7 +17,7 @@ $rootPath = $PSScriptRoot
 $ManualJavaHome = ''
 # Android SDK 根目录，包含 platforms、build-tools 等。例如：'C:/Tools/Android/Sdk'
 $ManualAndroidSdk = ''
-# 可选缓存目录；留空时优先沿用同名环境变量，否则使用项目 .gradle-home 和 .android。
+# 可选缓存目录；留空时优先沿用同名环境变量，否则使用项目 .gradle-home 和 .local/android/.android。
 # 测试签名固定使用项目 .android/debug.keystore，与 ANDROID_USER_HOME 无关。
 $ManualGradleUserHome = ''
 $ManualAndroidUserHome = ''
@@ -38,7 +38,7 @@ if (-not $LogPath.StartsWith($outputPrefix, [StringComparison]::OrdinalIgnoreCas
 $jdk = Resolve-BuildJdk -ManualPath $ManualJavaHome -RootPath $rootPath
 $sdk = Resolve-BuildAndroidSdk -ManualPath $ManualAndroidSdk -RootPath $rootPath
 $gradleHomePath = if ($ManualGradleUserHome) { $ManualGradleUserHome } elseif ($env:GRADLE_USER_HOME) { $env:GRADLE_USER_HOME } else { '.gradle-home' }
-$androidUserPath = if ($ManualAndroidUserHome) { $ManualAndroidUserHome } elseif ($env:ANDROID_USER_HOME) { $env:ANDROID_USER_HOME } else { '.android' }
+$androidUserPath = if ($ManualAndroidUserHome) { $ManualAndroidUserHome } elseif ($env:ANDROID_USER_HOME) { $env:ANDROID_USER_HOME } else { '.local/android/.android' }
 $gradleHomePath = ConvertTo-BuildPath $gradleHomePath $rootPath
 $androidUserPath = ConvertTo-BuildPath $androidUserPath $rootPath
 Write-Host "JDK $($jdk.Version)：$($jdk.Path) [$($jdk.Source)]"
@@ -53,9 +53,11 @@ if ($CheckEnvironment) {
 Set-BuildLocalSdk -SdkPath $sdk.Path -RootPath $rootPath
 [IO.Directory]::CreateDirectory((Split-Path -Parent $LogPath)) | Out-Null
 Write-Host "Gradle 日志：$LogPath"
-$arguments = @('-classpath', (Join-Path $rootPath 'gradle/wrapper/gradle-wrapper.jar'), 'org.gradle.wrapper.GradleWrapperMain', '--no-daemon', '--console=plain') + $Tasks
+$temporaryRoot = Join-Path $outputRoot 'tmp'
+[IO.Directory]::CreateDirectory($temporaryRoot) | Out-Null
+$arguments = @("-Djava.io.tmpdir=$temporaryRoot", '-classpath', (Join-Path $rootPath 'gradle/wrapper/gradle-wrapper.jar'), 'org.gradle.wrapper.GradleWrapperMain', '--no-daemon', '--console=plain') + $Tasks
 if ($Offline) { $arguments += '--offline' }
-$environmentNames = @('JAVA_HOME', 'ANDROID_HOME', 'ANDROID_SDK_ROOT', 'GRADLE_USER_HOME', 'ANDROID_USER_HOME')
+$environmentNames = @('JAVA_HOME', 'ANDROID_HOME', 'ANDROID_SDK_ROOT', 'GRADLE_USER_HOME', 'ANDROID_USER_HOME', 'ANDROID_PREFS_ROOT', 'TEMP', 'TMP')
 $previousEnvironment = @{}
 foreach ($name in $environmentNames) { $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name) }
 Push-Location -LiteralPath $rootPath
@@ -65,6 +67,11 @@ try {
     $env:ANDROID_SDK_ROOT = $sdk.Path
     $env:GRADLE_USER_HOME = $gradleHomePath
     $env:ANDROID_USER_HOME = $androidUserPath
+    # 旧 analytics 直接使用父目录，新 AndroidLocations 会追加 .android；两者都留在项目缓存内。
+    # 自定义路径不是 .android 时不额外设置旧入口，避免产生互相冲突的路径。
+    $env:ANDROID_PREFS_ROOT = if ((Split-Path -Leaf $androidUserPath) -eq '.android') { Split-Path -Parent $androidUserPath } else { $null }
+    $env:TEMP = $temporaryRoot
+    $env:TMP = $temporaryRoot
     # 同时指定 Gradle daemon JDK，避免用户 gradle.properties 中旧机器路径覆盖检测结果。
     $arguments += "-Dorg.gradle.java.home=$($jdk.Path)"
     & $jdk.Java @arguments 2>&1 | Tee-Object -FilePath $LogPath

@@ -1,5 +1,17 @@
 # 可复现性能测量
 
+2000 本本地书的导入、重复检测、进度保存及重启回归：
+
+```powershell
+./scripts/test-large-library.ps1 -Offline -Books 2000 -Iterations 3
+```
+
+脚本构建并安装独立 Debug 应用 `cc.novelia.app.librarytest`，不会升级或清空正式应用；同时运行隔离的备份/恢复回归。`LargeLibraryPerformanceTest` 实际生成、导入 2000 个独立的小型 UTF-8 TXT，为全部书目建立进度和历史，测量重载、筛选排序、进度更新与落盘，再重复导入并验证书目和阅读锚点完全不变。暂停导入也验证已完成书目和旧进度保留。夹具结束后删除。
+
+报告和日志取回到项目 `outputs/performance/large-library-<时间>/`。Gradle 缓存位于 `.gradle-home/`，Android 工具偏好位于 `.local/android/`，构建临时文件位于 `outputs/tmp/`，JVM 测试夹具位于 `app/build/tmp/<测试任务>/fixtures/`。设备测试使用设备应用内的隔离目录；脚本不创建或启动本机模拟器。
+
+进度报告记录变更分区字节数、主索引及备用副本的内容字节数，并提供旧式整快照编码的字节数/耗时参考。该参考不包含旧版原子写盘成本，不能据此宣称同倍率的耗时提升。TXT 很小，结果也不能代替插图 EPUB、真实整库备份或 UI 帧时间；Debug 仅用于验证场景和定位热点。
+
 `ReadingBenchmark` 测量应用冷启动和书架/外观设置导航的帧时间。`ReadingBaselineProfile.startup` 只收集启动路径，`localNavigation` 单独收集非启动路径，避免把设置页面放进 startup profile。设置入口不在首屏时会先滚动查找。
 
 [PerformanceScenarioTest](../app/src/androidTest/java/cc/novelia/app/performance/PerformanceScenarioTest.kt) 位于设备测试的 `performance/` 包，是独立的离线数据与排版测量：

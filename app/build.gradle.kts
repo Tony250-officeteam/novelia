@@ -92,6 +92,10 @@ android {
         }
     }
     buildTypes {
+        debug {
+            // 大书库设备测试安装为独立应用，避免启动或升级用户已有的阅读书库。
+            if(providers.gradleProperty("isolatedLibraryTests").orNull == "true") applicationIdSuffix = ".librarytest"
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -157,3 +161,10 @@ android.sourceSets.getByName("main").assets.srcDir(layout.buildDirectory.dir("ge
 // JVM 和 Android 解析测试使用同一份公开守则样本。
 android.sourceSets.getByName("androidTest").assets.srcDir("src/test/resources")
 tasks.named("preBuild") { dependsOn("generateOpenSourceNotices") }
+
+// 大书库测试及 Files.createTempDirectory 的夹具均留在项目内。
+tasks.withType<Test>().configureEach {
+    val testTemp = layout.buildDirectory.dir("tmp/$name/fixtures")
+    systemProperty("java.io.tmpdir", testTemp.get().asFile.absolutePath)
+    doFirst { testTemp.get().asFile.mkdirs() }
+}

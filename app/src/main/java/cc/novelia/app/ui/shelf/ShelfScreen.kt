@@ -130,6 +130,12 @@ import kotlinx.coroutines.withContext
     val recent = remember(state.books, state.positions) {
         state.books.asSequence().filter { state.positions.containsKey(it.book.ref.key) }.maxByOrNull { state.positions.getValue(it.book.ref.key).updatedAt }
     }
+    val importedBooks = remember(state.books, importedKeys) {
+        if(importedKeys.isEmpty()) emptyList() else {
+            val byKey = state.books.associateBy { it.book.ref.key }
+            importedKeys.mapNotNull(byKey::get)
+        }
+    }
     val settledQuery = rememberDebouncedQuery(query)
     var collapsedSearchGroups by remember(settledQuery, readingStatus) { mutableStateOf(setOf<String>()) }
     val filteringVolumes = settledQuery.isNotBlank() || readingStatus != "全部"
@@ -235,7 +241,6 @@ import kotlinx.coroutines.withContext
                                     }, enabled = managing && !batchWorking && !queueingDownloads && downloadableSelection.isNotEmpty()) { Text(if(queueingDownloads) "正在加入…" else "下载") }
                                 } }
                                 AppLazyColumn(modifier = Modifier.weight(1f), listModifier = Modifier.testTag("shelf-books"), state = listState) {
-                                    val importedBooks = importedKeys.mapNotNull { key -> state.books.firstOrNull { it.book.ref.key == key } }
                                     if(importedBooks.isNotEmpty()) item(key = "imported-books", contentType = "hero") {
                                         Card(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
                                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

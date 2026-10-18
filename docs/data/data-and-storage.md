@@ -27,10 +27,10 @@
 
 | 路径 | 内容与用途 |
 | --- | --- |
-| `library.json` | 主状态，使用 `AtomicFile` 提交 |
+| `library.json` | 版本 2 主索引，引用各分区的 SHA-256；使用 `AtomicFile` 提交 |
 | `library-last-good.json` | 最近一次良好副本，供恢复使用 |
 | `library-damaged-<UUID>.json` | 恢复前保留的损坏状态 |
-| `library-text/<SHA-256>.json` | 草稿长文本；兼容旧版混合载荷中的草稿 |
+| `library-text/<SHA-256>.json` | 书架、进度/历史、笔记、同步、其余设置及草稿的不可变分区载荷 |
 | `documents/<id>.json` | 本地文档目录 |
 | `documents/<id>-chapters/`、`<id>-images/` | 章节正文和插图；文件名使用内容哈希 |
 | `documents/<id>.epub / .txt / .srt` | 可用时保留的导入原件 |
@@ -51,7 +51,7 @@ LocalStore.update
   → 修改不可变快照、递增 revision
   → 发布 StateFlow，页面立即看到新值
   → StatePersistence 合并短时间内的更新
-  → 先写长文本载荷，再原子提交 library.json
+  → 只编码并写入变化的分区，再原子提交 library.json
   → 尽力更新良好副本，回收不再需要的载荷
 ```
 
@@ -59,7 +59,11 @@ LocalStore.update
 
 **`update` 返回只代表内存已更新。** 导出、后台调度等需要持久数据时，在协程中等待 `flush()`，并处理其错误。生命周期中的 `persistState()` 只是异步请求刷新，也不保证调用返回时已完成。
 
-`flush()` 提交取得锁时的最新快照，不阻止之后继续修改。需要状态与文档一起完成的恢复操作应使用专门提交入口。长文本先写、主索引后写的顺序由 [LibraryStateCodec](../../app/src/main/java/cc/novelia/app/data/storage/LibraryStateCodec.kt) 保证；损坏状态存在时会保留载荷供抢救。
+`flush()` 提交取得锁时的最新快照，并刷新已初始化的文档哈希索引，不阻止之后继续修改。需要状态与文档一起完成的恢复操作应使用专门提交入口。载荷先写、主索引后写的顺序由 [LibraryStateCodec](../../app/src/main/java/cc/novelia/app/data/storage/LibraryStateCodec.kt) 保证；损坏状态存在时会保留载荷供抢救。
+
+主索引一次引用整套分区，因此进度、历史与同步版本仍作为一个快照提交。主索引和良好副本均写入成功后才清理载荷，保留最近两次成功提交的引用；失败的编码或主文件写入不会取代这两份提交记录。解码先验证全部分区哈希及同步资料，通过后才发布状态。仍支持旧版内联 JSON 和外置草稿格式，下次保存迁移到版本 2；ZIP 备份继续输出完整自包含状态，不使用本机分区索引。旧版应用不认识版本 2 主索引，回退应用版本前应导出阅读资料 ZIP。
+
+收藏夹整理复用未变化的书目和集合；仅进度变化时跳过书架扫描。分区保存减少写入量，但进度/历史分区本身仍整体编码，冷启动也仍需读取全部元数据。
 
 ## 大标签库的收集与保存
 
@@ -88,6 +92,8 @@ LocalStore.update
 
 读取会校验内容哈希和章节身份。旧单文件格式在读取时尝试迁移；遇到 I/O 失败可继续使用可读旧格式。来源哈希只能帮助寻找重复文档，恢复时还要核对正文和图片。
 
+批量导入首次查重时枚举目录并补齐哈希，之后维护反向索引，仅检查相同哈希的候选；多个候选优先复用书架中的副本。成功导入和删除会增量维护索引，备份恢复后清单失效。批次完成、暂停、失败均刷新已完成书目及索引；索引缺失时可以从文档目录重建。界面每 100 ms 至多发布一次中间进度，结束或取消时发布最终结果。
+
 ## 缓存与用户资料分开清理
 
 | 缓存 | 当前预算 |
@@ -109,4 +115,4 @@ LocalStore.update
 
 分别检查普通设置 JSON、阅读资料 ZIP 和 WebDAV 的白名单、校验、合并与引用重映射。它们不是同一个格式，也不会自动完整覆盖新增字段。ZIP 格式和合并规则统一在[备份文档](backup-and-recovery.md)维护。
 
-对应测试：`StatePersistenceTest`、`LibraryStateCodecTest`、`DocumentStorageTest`、`DocumentHashIndexTest`、`LibraryBackupTest`，位于 [data 单元测试](../../app/src/test/java/cc/novelia/app/data)。真实文件选择器、空间不足和进程终止仍需设备验证。
+对应测试：`StatePersistenceTest`、`LibraryStateCodecTest`、`PartitionedLibraryTest`、`StableLibraryStateTest`、`DocumentStorageTest`、`DocumentHashIndexTest`、`LibraryBackupTest`，位于 [data 单元测试](../../app/src/test/java/cc/novelia/app/data)。`LargeLibraryPerformanceTest` 和 `LibraryBackupFlowTest` 验证隔离设备书库的重载、取消导入、写入失败及备份恢复；真实文件选择器、系统杀进程和真实存储空间耗尽仍需专门设备验证。

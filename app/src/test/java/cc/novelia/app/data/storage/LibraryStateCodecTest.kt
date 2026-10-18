@@ -22,13 +22,13 @@ class LibraryStateCodecTest {
                 val first = codec().encode(state)
                 val running = codec()
                 assertEquals(state, running.decode(first))
-                val payload = directory.listFiles()!!.single()
+                val payload = directory.resolve(parts(first).getValue("drafts") + ".json")
                 if (corrupt) payload.writeText("damaged") else assertTrue(payload.delete())
                 val restored = running.encode(state, forcePayloadWrite = true)
                 assertEquals(state, codec().decode(restored))
-                assertEquals(2, writes)
+                assertEquals(12, writes)
                 running.encode(state.copy(positions = mapOf("local/book" to Position("chapter"))))
-                assertEquals("Normal progress still reuses the repaired payload", 2, writes)
+                assertEquals("Normal progress only writes the reading partition", 13, writes)
             } finally { directory.deleteRecursively() }
         }
     }
@@ -44,12 +44,13 @@ class LibraryStateCodecTest {
             assertTrue(first.length < 5_000)
             val progress = state.copy(positions = mapOf("local/book" to Position("c", 100)))
             val second = codec.encode(progress)
-            assertEquals(1, writes)
+            assertEquals(7, writes)
+            assertEquals(parts(first).getValue("drafts"), parts(second).getValue("drafts"))
             assertEquals(progress, codec.decode(second))
             val restarted = LibraryStateCodec(directory, { it.readText() }, { file, text -> writes++; file.writeText(text) })
             assertEquals(progress, restarted.decode(second))
             restarted.encode(progress.copy(recentSearches = listOf("新搜索")))
-            assertEquals(1, writes)
+            assertEquals(8, writes)
         } finally { directory.deleteRecursively() }
     }
 
@@ -72,7 +73,7 @@ class LibraryStateCodecTest {
             val migrated = running.encode(state)
             val json = appJson.parseToJsonElement(migrated).jsonObject
             assertFalse("savedArticles" in json)
-            val newHash = json.getValue("localLongTextPayload").jsonPrimitive.content
+            val newHash = parts(migrated).getValue("drafts")
             assertNotEquals(oldHash, newHash)
             assertFalse("articles" in appJson.parseToJsonElement(directory.resolve("$newHash.json").readText()).jsonObject)
             assertEquals(state, codec().decode(migrated))
@@ -97,4 +98,7 @@ class LibraryStateCodecTest {
             assertEquals(true, result.issue?.hasLastGood)
         } finally { directory.deleteRecursively() }
     }
+
+    private fun parts(text: String) = appJson.parseToJsonElement(text).jsonObject.getValue("localLibraryParts")
+        .jsonObject.mapValues { it.value.jsonPrimitive.content }
 }

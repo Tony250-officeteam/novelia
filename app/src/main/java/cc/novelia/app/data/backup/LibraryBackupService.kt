@@ -174,6 +174,7 @@ class LibraryBackupService(private val store: LocalStore, private val keywords: 
                     file.delete()
                     file.parentFile?.takeIf { it != store.documentsDir && it.list().orEmpty().isEmpty() }?.delete()
                 }
+                store.invalidateDocumentCatalog()
             }
         }
     }

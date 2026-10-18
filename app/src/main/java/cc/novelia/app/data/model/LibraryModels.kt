@@ -87,10 +87,22 @@ fun legacyFolderId(name: String): String = if(name == DEFAULT_FOLDER) DEFAULT_FO
 )
 
 /** 收藏夹名称仅用于显示；改名时 ID 及所有本地分卷仍保持原关系。 */
-fun LibraryState.withStableFolderIds(): LibraryState {
+fun LibraryState.withStableFolderIds(previous: LibraryState? = null): LibraryState {
+    // previous 必须是已经整理过的不可变快照；仅阅读进度变化时无需扫描书架。
+    if(previous != null && books === previous.books && folders === previous.folders && folderIds === previous.folderIds) return this
     val names = (listOf(DEFAULT_FOLDER) + folders + books.map { it.folder }).distinct()
     val ids = names.associateWith { if(it == DEFAULT_FOLDER) DEFAULT_FOLDER_ID else folderIds[it] ?: legacyFolderId(it) }
-    return copy(folders = names, folderIds = ids, books = books.map { it.copy(folderId = ids.getValue(it.folder)) })
+    var changed: MutableList<SavedBook>? = null
+    books.forEachIndexed { index, saved ->
+        val id = ids.getValue(saved.folder)
+        if(saved.folderId != id) {
+            val target = changed ?: books.toMutableList().also { changed = it }
+            target[index] = saved.copy(folderId = id)
+        }
+    }
+    if(changed == null && names == folders && ids == folderIds) return this
+    return copy(folders = if(names == folders) folders else names,
+        folderIds = if(ids == folderIds) folderIds else ids, books = changed ?: books)
 }
 
 fun LibraryState.createShelfFolder(name: String): LibraryState {

@@ -94,11 +94,14 @@ class LocalStore(val context: Context, private val syncDevicePreferences: () -> 
     private val localChapterMemory = WeightedMemoryCache<String, LocalChapter>(12, 12L * 1024 * 1024) { 64 + paragraphsWeight(it.paragraphs) + localContentWeight(it.readingContent) }
     private val documentStorage = DocumentStorage(documentsDir,
         { AtomicFile(it).openRead().bufferedReader(Charsets.UTF_8).use { reader -> reader.readText() } }, ::atomicText)
-    private val sourceIndex by lazy {
+    private val sourceIndexDelegate = lazy {
         val file = File(documentsDir, "source-index.json")
         val initial = runCatching { appJson.decodeFromString<Map<String, String>>(AtomicFile(file).openRead().bufferedReader(Charsets.UTF_8).use { it.readText() }) }.getOrDefault(emptyMap())
         DocumentHashIndex(initial, { documentIndex(it).sourceHash }, { atomicText(file, appJson.encodeToString(it)) })
     }
+    private val sourceIndex by sourceIndexDelegate
+    private var importBatchDepth = 0
+    private var importCatalogReady = false
     private val chapterIndex = ChapterCacheIndex(cacheDir, 256L * 1024 * 1024)
     private val mutableCacheGeneration = MutableStateFlow(0L)
     val cacheGeneration = mutableCacheGeneration.asStateFlow()
@@ -117,7 +120,7 @@ class LocalStore(val context: Context, private val syncDevicePreferences: () -> 
         // 避免在这些回调中抛异常，由持续显示的恢复提示说明原因。
         if (mutableRecoveryIssue.value != null) return
         val before = mutable.value
-        val raw = transform(before).withMigratedReadingHistory().withStableFolderIds()
+        val raw = transform(before).withMigratedReadingHistory().withStableFolderIds(before)
         // 启动恢复等调用经常没有实际修改，不为这些调用初始化同步配置或投影整份书库。
         if(raw == before) return
         val domains = WebDavProjection.affectedLibraryDomains(before, raw)
@@ -134,7 +137,7 @@ class LocalStore(val context: Context, private val syncDevicePreferences: () -> 
     /** 同步落地保留远端版本，不将它识别为新的用户编辑；变换仍须在最新本机状态上合并。 */
     @Synchronized internal fun updateFromWebDav(transform: (LibraryState) -> LibraryState) {
         check(mutableRecoveryIssue.value == null) { "请先恢复受保护的本地资料" }
-        val next = transform(mutable.value).withStableFolderIds()
+        val next = transform(mutable.value).withStableFolderIds(mutable.value)
         if(next == mutable.value) return
         persistence.submit(Revision(++revision, next))
         mutable.value = next
@@ -145,6 +148,7 @@ class LocalStore(val context: Context, private val syncDevicePreferences: () -> 
         val output = stateFile.startWrite()
         try { output.write(text.toByteArray(Charsets.UTF_8)); stateFile.finishWrite(output) }
         catch (error: Exception) { stateFile.failWrite(output); throw error }
+        stateCodec.committed(text)
         // 备用副本尽力写入，其失败不能把已成功提交的书库误报为失败。
         runCatching { atomicText(lastGoodFile, text); if (!preserveTextHistory) stateCodec.compact() }
     }
@@ -183,7 +187,25 @@ class LocalStore(val context: Context, private val syncDevicePreferences: () -> 
     }
 
     /** 需要可靠落盘的生命周期和后台任务边界应等待此方法完成。 */
-    suspend fun flush() = withContext(Dispatchers.IO) { persistence.flush() }
+    suspend fun flush() = withContext(Dispatchers.IO) {
+        persistence.flush()
+        synchronized(documentLock) { if(sourceIndexDelegate.isInitialized()) sourceIndex.flush() }
+    }
+
+    /** 目录只在批次首次查重时扫描；暂停、失败和完成均提交可重建索引及已完成书目。 */
+    internal suspend fun <T> documentImportBatch(block: suspend () -> T): T {
+        synchronized(documentLock) { if(importBatchDepth++ == 0) importCatalogReady = false }
+        try { return block() }
+        finally {
+            withContext(NonCancellable + Dispatchers.IO) {
+                synchronized(documentLock) { if(--importBatchDepth == 0) importCatalogReady = false }
+                flush()
+            }
+        }
+    }
+
+    /** 备份恢复会直接安装文档文件，下次查重必须重新取得清单。 */
+    internal fun invalidateDocumentCatalog() = synchronized(documentLock) { importCatalogReady = false }
 
     fun saveBook(book: BookCard, folder: String = "默认收藏") = update { it.withSavedBook(book, folder) }
     fun removeBook(ref: BookRef) = update { it.withoutBook(ref) }
@@ -252,12 +274,20 @@ class LocalStore(val context: Context, private val syncDevicePreferences: () -> 
         documentMemory.put(id, index)
         localChapterMemory.clear()
         sourceIndex.record(id, stored.sourceHash)
+        if(importBatchDepth == 0) sourceIndex.flush()
     }
     fun findDocumentByHash(hash: String, checkCancelled: () -> Unit = {}): BookRef? = synchronized(documentLock) {
-        val retained = documentStorage.ids()
-        val available = retained.toSet()
-        val shelf = state.value.books.mapNotNull { it.book.ref.takeIf(BookRef::isLocal)?.id }.filter { it in available }
-        sourceIndex.find(hash, (shelf + retained).distinct(), checkCancelled)?.let { BookRef("local", it) }
+        if(hash.isBlank()) return@synchronized null
+        checkCancelled()
+        if(importBatchDepth == 0 || !importCatalogReady) {
+            sourceIndex.reconcile(documentStorage.ids(), checkCancelled)
+            importCatalogReady = importBatchDepth > 0
+        }
+        val found = sourceIndex.find(hash, { checkCancelled(); documentStorage.exists(it) }) {
+            state.value.books.asSequence().map { it.book.ref }.filter { it.isLocal }.map { it.id }
+        }
+        if(importBatchDepth == 0) sourceIndex.flush()
+        found?.let { BookRef("local", it) }
     }
     fun documentImage(id: String, hash: String): File { require(hash.matches(Regex("[a-f0-9]{64}"))); return File(documentsDir, "${safeId(id)}-images/$hash") }
     fun documentSource(id: String, format: String): File { require(format in listOf("epub", "txt", "srt")); return File(documentsDir, "${safeId(id)}.$format") }
@@ -336,6 +366,7 @@ class LocalStore(val context: Context, private val syncDevicePreferences: () -> 
         localChapterMemory.clear()
         sourceIndex.remove(key)
         documentStorage.remove(key)
+        if(importBatchDepth == 0) sourceIndex.flush()
         File(documentsDir, "$key-images").listFiles()?.forEach { it.delete() }
         File(documentsDir, "$key-images").delete()
         listOf("epub", "txt", "srt").forEach { documentSource(key, it).delete() }

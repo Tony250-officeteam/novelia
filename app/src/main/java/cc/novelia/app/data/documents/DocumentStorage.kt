@@ -19,6 +19,8 @@ internal class DocumentStorage(
     private val read: (File) -> String,
     private val write: (File, String) -> Unit
 ) {
+    fun exists(id: String): Boolean = manifest(id).let { it.isFile || File(it.path + ".bak").isFile }
+
     /** 仅列出已提交目录，不读取正文；保留副本即使已移出书架也参加重复导入检测。 */
     fun ids(): List<String> = directory.listFiles().orEmpty().asSequence()
         .filter { it.isFile && (it.name.endsWith(".json") || it.name.endsWith(".json.bak")) }

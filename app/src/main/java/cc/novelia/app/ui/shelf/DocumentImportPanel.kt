@@ -23,7 +23,7 @@ import cc.novelia.app.files.importing.ImportStatus
 import cc.novelia.app.files.importing.importDocumentUri
 import cc.novelia.app.files.importing.runDocumentImportBatch
 
-internal data class DocumentImportState(val items: List<ImportItem> = emptyList(), val running: Boolean = false) {
+internal data class DocumentImportState(val items: List<ImportItem> = emptyList(), val running: Boolean = false, val error: String? = null) {
     val completed get() = items.count { it.status in setOf(ImportStatus.Success, ImportStatus.Duplicate, ImportStatus.Failed) }
     val bookKeys get() = items.mapNotNull { it.bookKey }.distinct()
 }
@@ -50,6 +50,9 @@ internal class DocumentImportViewModel(private val store: LocalStore) : ViewMode
         if (state.value.running) return
         mutable.value = state.value.copy(running = true)
         task = viewModelScope.launch {
+            var latestItems = state.value.items
+            var lastPublishedAt = 0L
+            var failure: String? = null
             try {
                 // 显示名查询也可能失败，不能影响文件流读取或其余批次。
                 val named = withContext(Dispatchers.IO) {
@@ -67,10 +70,25 @@ internal class DocumentImportViewModel(private val store: LocalStore) : ViewMode
                         item.copy(name = name?.takeIf { it.isNotBlank() } ?: item.name)
                     }
                 }
-                runDocumentImportBatch(named, failedOnly, onChange = { mutable.value = DocumentImportState(it, true) }, errorMessage = { it.friendlyMessage() }) { item, progress ->
-                    importDocumentUri(store, Uri.parse(item.source), onProgress = progress)
+                latestItems = named
+                store.documentImportBatch {
+                    runDocumentImportBatch(named, failedOnly, onChange = { items ->
+                        latestItems = items
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        if(now - lastPublishedAt >= 100) {
+                            mutable.value = DocumentImportState(items, true)
+                            lastPublishedAt = now
+                        }
+                    }, errorMessage = { it.friendlyMessage() }) { item, progress ->
+                        importDocumentUri(store, Uri.parse(item.source), onProgress = progress)
+                    }
                 }.also { mutable.value = DocumentImportState(it) }
-            } finally { mutable.value = mutable.value.copy(running = false) }
+            } catch(cancelled: CancellationException) { throw cancelled }
+            catch(error: Exception) { failure = error.friendlyMessage() }
+            finally {
+                // 暂停/失败时也发布最后状态，不能让节流隐藏已经成功或待重试的项。
+                mutable.value = DocumentImportState(latestItems, false, failure)
+            }
         }
     }
 }
@@ -88,4 +106,5 @@ internal class DocumentImportViewModel(private val store: LocalStore) : ViewMode
 @Composable internal fun DocumentImportPanel(model: DocumentImportViewModel, onRead: (BookRef) -> Unit) {
     val state by model.state.collectAsStateWithLifecycle()
     ImportResultsPanel(state.items, state.running, model::pause, model::retryFailed, model::resume, onRead)
+    state.error?.let { androidx.compose.material3.Text(it, color = androidx.compose.material3.MaterialTheme.colorScheme.error) }
 }

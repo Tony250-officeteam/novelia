@@ -59,7 +59,9 @@ Debug 和本地 Release 都支持 `-Abi`、`-Offline` 和 `-Verify`。默认 ABI
 
 `-Verify` 不运行设备测试；原生 AAR 构建自身依赖 Go 单元测试。Go 的真实网络测试另有显式开关，见[测试指南](../quality/testing.md)。
 
-应用包名统一为 `cc.novelia.app`，Debug 没有独立后缀。安装到已有同包名应用的设备时，需要签名兼容且版本满足升级要求。不同签名之间迁移前先[备份阅读资料](../data/backup-and-recovery.md)。
+普通应用包名为 `cc.novelia.app`，Debug 默认没有独立后缀。安装到已有同包名应用的设备时，需要签名兼容且版本满足升级要求。不同签名之间迁移前先[备份阅读资料](../data/backup-and-recovery.md)。大书库测试脚本通过 `-PisolatedLibraryTests=true` 使用独立 Debug 包名 `cc.novelia.app.librarytest`，不会覆盖已有应用。
+
+Windows 构建默认将 Gradle 缓存放在 `.gradle-home/`、Android 工具偏好放在 `.local/android/`；显式缓存配置或已有环境变量仍可覆盖。`build.ps1` 的临时文件放在 `outputs/tmp/`，JVM 单元测试的临时夹具放在 `app/build/tmp/<测试任务>/fixtures/`。`scripts/test-large-library.ps1` 会为本次运行明确选择项目内缓存路径，并把设备性能报告取回 `outputs/performance/`。
 
 ## GitHub Actions 自动预览包
 

@@ -14,6 +14,8 @@
 
 离线场景使用合成数据和隔离目录，包含 1,000 本书、10,000 章目录及 1 万/10 万/50 万字正文。分别记录写入、读取、筛选、投影、StaticLayout 和分页，不用真实书库做夹具。
 
+另有 `LargeLibraryPerformanceTest` 覆盖 2000 个真实小型 TXT 的首次/重复导入，以及全部书目已有进度时的保存与重载；同一运行还检查暂停导入与备份恢复。运行 `./scripts/test-large-library.ps1 -Offline`，测试安装为独立的 `.librarytest` 应用，项目内缓存及报告位置见 [benchmark README](../../benchmark/README.md)。该场景的前后内存快照不是峰值，也不测 UI 帧率。
+
 ```powershell
 ./build.ps1 -Tasks @(':app:connectedDebugAndroidTest', '-Pandroid.testInstrumentationRunnerArguments.class=cc.novelia.app.performance.PerformanceScenarioTest', '-Pandroid.testInstrumentationRunnerArguments.performanceIterations=3')
 ```

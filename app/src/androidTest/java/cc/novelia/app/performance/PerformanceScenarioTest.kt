@@ -153,7 +153,7 @@ class PerformanceScenarioTest {
 
     private data class Viewport(val name: String, val width: Int, val height: Int, val fontScale: Float)
 
-    private class PerformanceReport(context: Context, iterations: Int) {
+    internal class PerformanceReport(context: Context, iterations: Int) {
         private val stages = JSONArray()
         private val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
         private val activityManager = context.getSystemService(ActivityManager::class.java)
