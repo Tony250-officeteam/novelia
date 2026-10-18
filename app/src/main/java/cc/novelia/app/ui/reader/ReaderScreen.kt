@@ -321,8 +321,8 @@ import kotlinx.serialization.encodeToString
         var topOverlayHeight by remember { mutableIntStateOf(0) }
         var bottomOverlayHeight by remember { mutableIntStateOf(0) }
         val density = LocalDensity.current
-        // 分页模式预留固定页脚，不随工具栏或按钮显隐变化。
-        val pageProgressHeight = with(density) { 16.sp.toDp() } + 12.dp
+        // 两种模式都为启用的底栏预留固定空间，不随工具栏或按钮显隐变化。
+        val readingStatusBarHeight = if(settings.showReadingStatusBar) with(density) { 16.sp.toDp() } + 12.dp else 0.dp
         val safeInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout)
         // 隐藏状态栏时正文延伸到顶部，避免屏幕缺口仍留出整条空白；
         // 保留横屏两侧和底部安全区，目录与引导控件仍避让全部系统区域。
@@ -598,14 +598,14 @@ import kotlinx.serialization.encodeToString
             val tapNavigation = rememberReaderTapNavigation(settings.tapPageTurn, bodyInputEnabled, { menu = !menu }, { page(it) })
             if(settings.staticPagination) EInkPage(paragraphs, settings, eInk,
                 Modifier.testTag("reader-page").align(Alignment.TopCenter).fillMaxHeight().windowInsetsPadding(readingInsets)
-                    .padding(bottom = pageProgressHeight)
+                    .padding(bottom = readingStatusBarHeight)
                     .widthIn(max = settings.width.dp).fillMaxWidth(),
                 imageModel = { it.imageUrl ?: it.localImageId?.takeIf { ref.isLocal }?.let { id -> c.store.documentImage(ref.id, id) } },
                 onToggleMenu = { menu = !menu }, onSelect = { selected = it }, onPage = { page(it) },
                 background = background, foreground = foreground, activeMatch = activeMatch,
                 interactionEnabled = bodyInputEnabled, contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp))
             else LazyColumn(state = scroll, overscrollEffect = null, modifier = Modifier.testTag("reader-scroll").align(Alignment.TopCenter).fillMaxHeight()
-                .windowInsetsPadding(readingInsets).widthIn(max = settings.width.dp).fillMaxWidth()
+                .windowInsetsPadding(readingInsets).padding(bottom = readingStatusBarHeight).widthIn(max = settings.width.dp).fillMaxWidth()
                 .onSizeChanged { size ->
                     if(positionState.viewportWidth != 0 && positionState.viewportWidth != size.width)
                         positionState.pendingScrollRestore = ReadingRestoreAnchor(positionState.scrollAnchor.first, positionState.scrollAnchor.third, positionState.scrollAnchor.second)
@@ -652,19 +652,20 @@ import kotlinx.serialization.encodeToString
                         }
                         // 章末留白让同一提示句位于控件上方，
                         // 不会改变正文视口高度或使章节重新分页。
-                        Spacer(Modifier.height(with(density) { (bottomOverlayHeight - readingInsets.getBottom(density)).coerceAtLeast(0).toDp() }))
+                        Spacer(Modifier.height(with(density) { (bottomOverlayHeight - readingInsets.getBottom(density)).coerceAtLeast(0).toDp() }
+                            .minus(readingStatusBarHeight).coerceAtLeast(0.dp)))
                     }
                 }
             }
             ReaderTopToolbar(
                 state = ReaderTopToolbarState(chapter.title, ref.isLocal, leaving, translationUpdate != null,
-                    returnPoint != null, !leaving && !chapterLoad.loading && !positionState.restoringAnchor && positionState.initialAnchorRestored),
+                    returnPoint != null, !leaving && !chapterLoad.loading && !positionState.restoringAnchor && positionState.initialAnchorRestored, speechStatus),
                 search = ReaderChapterSearchState(search, query, finding, chapterMatches.indexOf(activeMatch), chapterMatches.size),
                 menu = menu, reducedMotion = reducedMotion, toolbarBackground = toolbarBackground, foreground = foreground,
                 modifier = Modifier.align(Alignment.TopCenter), onHeightChanged = { topOverlayHeight = it },
                 onBack = { if(!leaving) { seekGeneration++; seekJob?.cancel(); seekTarget = null; chapterLoad.cancel(); savePosition(); leaving = true; c.back() } },
                 onRefresh = { refreshChapter() }, onToggleSearch = { if(search) focusManager.clearFocus(); search = !search },
-                onPreferences = { preferences = true }, onReturnToReading = { returnToReadingPlace() },
+                onSpeech = { speechSheet = true }, onReturnToReading = { returnToReadingPlace() },
                 onQueryChange = { searchGeneration++; searchJob?.cancel(); finding = false; query = it; activeMatch = null; chapterMatches = emptyList(); matchedQuery = "" },
                 onFind = { findNext(it) }, onBookSearch = { focusManager.clearFocus(); bookSearch = true },
             )
@@ -680,15 +681,15 @@ import kotlinx.serialization.encodeToString
                     bookmarkEnabled = paragraphs.isNotEmpty(),
                     bookmarked = local.notes.any { it.bookmarked && it.key == ref.key && it.chapterId == chapterId && it.paragraph == paragraphs.getOrNull(firstParagraph)?.index },
                     progress = seekTarget ?: readingProgress, pageReady = eInk.ready, pageCount = eInk.pages.size,
-                    pageIndex = eInk.pageIndex, speechStatus = speechStatus, wide = wide, cached = cached,
+                    pageIndex = eInk.pageIndex, chapterTitle = chapter.title, wide = wide, cached = cached,
                 ),
                 settings = settings, menu = menu, reducedMotion = reducedMotion, toolbarBackground = toolbarBackground,
-                foreground = foreground, pageProgressHeight = pageProgressHeight, modifier = Modifier.align(Alignment.BottomCenter),
+                foreground = foreground, readingStatusBarHeight = readingStatusBarHeight, modifier = Modifier.align(Alignment.BottomCenter),
                 onHeightChanged = { bottomOverlayHeight = it }, onPage = { page(it) }, onSeek = { seekChapter(it) },
                 onSeekFocusChanged = { seekFocused = it }, onPreviousChapter = { chapter.prevId?.let { openChapter(it) } },
                 onNextChapter = { if(chapter.nextId != null) openChapter(chapter.nextId) else nextVolumePrompt = true },
                 onToc = { if(wide) { tocQuery = ""; tocLocateRequest++ } else toc = true },
-                onBookmark = { paragraphs.getOrNull(firstParagraph)?.let { saveBookmark(it) } }, onSpeech = { speechSheet = true },
+                onBookmark = { paragraphs.getOrNull(firstParagraph)?.let { saveBookmark(it) } }, onPreferences = { preferences = true },
             )
             if((chapterLoad.loading && (!inlineChapterLoad || settings.staticPagination)) || chapterLoad.error != null) Surface(
                 Modifier.align(Alignment.BottomCenter).windowInsetsPadding(readingInsets)
@@ -708,7 +709,7 @@ import kotlinx.serialization.encodeToString
             }
             }
             if(showTapTutorial) ReaderTapTutorial(settings.staticPagination, settings.eInkMode || eInkInteraction,
-                safeInsets, settings.width, pageProgressHeight, Modifier.matchParentSize()) {
+                safeInsets, settings.width, readingStatusBarHeight, Modifier.matchParentSize()) {
                 c.store.update { it.copy(readerTapTutorialSeen = true) }
             }
         }

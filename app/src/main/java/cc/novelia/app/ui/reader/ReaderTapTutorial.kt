@@ -36,7 +36,7 @@ import androidx.compose.ui.unit.dp
 /** 与正文同级的引导层：不改变视口尺寸，关闭动作也不会穿透为一次翻页。 */
 @Composable internal fun ReaderTapTutorial(
     staticPagination: Boolean, eInk: Boolean, readingInsets: WindowInsets,
-    bodyWidth: Float, pageProgressHeight: androidx.compose.ui.unit.Dp,
+    bodyWidth: Float, readingStatusBarHeight: androidx.compose.ui.unit.Dp,
     modifier: Modifier = Modifier, onDismiss: () -> Unit
 ) {
     BackHandler(onBack = onDismiss)
@@ -62,7 +62,7 @@ import androidx.compose.ui.unit.dp
         }) {
         val compact = maxHeight < 400.dp
         Column(Modifier.fillMaxSize().windowInsetsPadding(readingInsets)
-            .padding(bottom = if(staticPagination) pageProgressHeight else 0.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            .padding(bottom = readingStatusBarHeight), horizontalAlignment = Alignment.CenterHorizontally) {
             Column(Modifier.widthIn(max = 640.dp).fillMaxWidth().padding(horizontal = 16.dp, vertical = if(compact) 0.dp else 16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("点击区域翻页", Modifier.weight(1f).semantics { heading() }, color = foreground, style = MaterialTheme.typography.titleLarge)

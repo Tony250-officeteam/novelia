@@ -170,7 +170,7 @@ internal object WebDavValidation {
         document.records.forEach { (key, record) ->
             if(WebDavMerge.winner(record.existence, existence = true)?.deleted != false) return@forEach
             val required = when (document.domain) {
-                SyncDomain.SETTINGS -> if (key == GLOBAL) portableGlobalFields else if (key.startsWith(BLOCKED)) setOf("kind", "value") else portableReaderFields - "customColors"
+                SyncDomain.SETTINGS -> if (key == GLOBAL) portableGlobalFields else if (key.startsWith(BLOCKED)) setOf("kind", "value") else portableReaderFields - setOf("customColors", "showReadingStatusBar")
                 SyncDomain.FAVORITES -> if (key == ORDER) setOf("ids") else if (key.startsWith(FOLDER)) setOf("name") else setOf("book", "folderId", "pinned", "status", "addedAt")
                 SyncDomain.KEYWORDS -> if (key == ORDER) orderFields else if (key.startsWith(CATEGORY)) categoryFields else keywordEntryFields
                 SyncDomain.PROGRESS -> setOf("position")
@@ -178,8 +178,8 @@ internal object WebDavValidation {
                 SyncDomain.NOTES -> annotationFields + "text"
                 SyncDomain.HISTORY -> historyFields
             }
-            // 老版同步快照没有配色组，保留本机配色；新快照的配色组仍作为原子字段校验。
-            val optional = if (document.domain == SyncDomain.SETTINGS && (key == READER || key.startsWith(BOOK_SETTING))) setOf("devicePreferences", "customColors") else emptySet()
+            // 老版同步快照可能缺少新增偏好，保留本机选择；字段存在时仍完整校验。
+            val optional = if (document.domain == SyncDomain.SETTINGS && (key == READER || key.startsWith(BOOK_SETTING))) setOf("devicePreferences", "customColors", "showReadingStatusBar") else emptySet()
             require(required.all { field -> record.fields[field]?.let { WebDavMerge.winner(it)?.deleted == false } == true } &&
                 record.fields.all { (field, cell) -> WebDavMerge.winner(cell)?.deleted != false || field in required || field in optional }) {
                 "同步记录字段不完整，请恢复有效的远端数据"

@@ -38,6 +38,8 @@ import kotlinx.serialization.Serializable
     val showScrollPageButtons: Boolean = true,
     // 章节进度条独立于翻页按钮，切换墨水屏预设时保留其设置。
     val showProgressBar: Boolean = true,
+    // 两种阅读模式共用的常驻底栏，独立于展开工具栏时的进度滑条。
+    val showReadingStatusBar: Boolean = true,
     // 默认连读本地/缓存及联网章节，整个播放会话共用一次定时停止。
     val speechContinueChapters: Boolean = true,
     val speechNetworkContinuation: Boolean = true,

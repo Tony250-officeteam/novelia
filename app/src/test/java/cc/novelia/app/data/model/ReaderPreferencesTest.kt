@@ -6,6 +6,21 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ReaderPreferencesTest {
+    @Test fun readingStatusBarDefaultsOnAndPersistsIndependentlyAcrossProfilesAndBackups() {
+        assertTrue(appJson.decodeFromString<ReaderSettings>("{}").showReadingStatusBar)
+        assertTrue(appJson.decodeFromString<ReaderSettings>("""{"paginationMode":"auto"}""").showReadingStatusBar)
+        val hidden = ReaderSettings(showReadingStatusBar = false)
+        assertTrue(hidden.showProgressBar)
+        assertFalse(hidden.withPaginationMode("auto").withPaginationMode("scroll").showReadingStatusBar)
+        assertFalse(hidden.withEInkMode(true).withEInkMode(false).showReadingStatusBar)
+        val backup = SettingsBackup(reader = hidden)
+        assertEquals(backup, appJson.decodeFromString<SettingsBackup>(appJson.encodeToString(backup)))
+        val library = LibraryState(reader = ReaderSettings(), bookSettings = mapOf("local/book" to hidden))
+        val restored = appJson.decodeFromString<LibraryState>(appJson.encodeToString(library))
+        assertTrue(restored.reader.showReadingStatusBar)
+        assertFalse(restored.bookSettings.getValue("local/book").showReadingStatusBar)
+    }
+
     @Test fun tapTutorialAcknowledgementMigratesAndPersistsOutsideBookPreferences() {
         assertFalse(appJson.decodeFromString<LibraryState>("{}").readerTapTutorialSeen)
         val library = LibraryState(readerTapTutorialSeen = true, reader = ReaderSettings(tapPageTurn = true),

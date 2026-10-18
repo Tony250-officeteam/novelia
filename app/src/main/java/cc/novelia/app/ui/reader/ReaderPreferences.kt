@@ -119,6 +119,7 @@ import kotlin.math.roundToInt
                         ReaderPreferenceHeading("滚动分页")
                         TogglePreference("章节末尾按钮", "连续滚动时显示章末的下一章、下一分卷或返回目录按钮；关闭后仍可上拉进入下一章", value.showScrollPageButtons, defaultValue = defaults?.showScrollPageButtons) { onChange(value.copy(showScrollPageButtons = it)) }
                         ReaderPreferenceHeading("工具栏")
+                        TogglePreference("底部阅读信息", "常驻显示时间、章节名和本章进度；自动分页时额外显示页码", value.showReadingStatusBar, defaultValue = defaults?.showReadingStatusBar) { onChange(value.copy(showReadingStatusBar = it)) }
                         TogglePreference("阅读时隐藏状态栏", "隐藏顶部时间、电量和 Wi-Fi 等图标；从顶部下滑可临时显示，退出阅读后恢复", value.hideStatusBar, defaultValue = defaults?.hideStatusBar) { onChange(value.copy(hideStatusBar = it)) }
                         TogglePreference("阅读进度条", "展开工具栏时显示，可快速跳转本章位置", value.showProgressBar, defaultValue = defaults?.showProgressBar) { onChange(value.copy(showProgressBar = it)) }
                         ReaderSlider("工具栏透明度 ${(value.resolvedToolbarTransparency * 100).roundToInt()}%", value.resolvedToolbarTransparency, 0f..1f,

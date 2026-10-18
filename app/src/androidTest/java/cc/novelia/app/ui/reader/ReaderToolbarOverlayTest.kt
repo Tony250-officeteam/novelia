@@ -43,6 +43,81 @@ class ReaderToolbarOverlayTest {
 
     @Test fun eInkScrollingKeepsToolbarHiddenAcrossChapters() = verifyChapterNavigation(ReaderSettings().withEInkMode(true).withPaginationMode("scroll"))
 
+    @Test fun speechIsInTopToolbarAndPreferencesAreInBottomToolbar() = withReader(ReaderSettings()) { _, _ ->
+        compose.onNode(hasContentDescription("朗读本章") and hasAnyAncestor(hasTestTag("reader-top-toolbar")))
+            .assertIsDisplayed().performClick()
+        compose.onNodeWithText("系统朗读").assertIsDisplayed()
+        compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        compose.onNode(hasContentDescription("阅读设置") and hasAnyAncestor(hasTestTag("reader-bottom-toolbar")))
+            .assertIsDisplayed().performClick()
+        compose.onNodeWithText("阅读偏好").assertIsDisplayed()
+        compose.onNodeWithText("关闭面板").performClick()
+    }
+
+    @Test fun scrollingStatusBarTracksProgressAndChapterWithMenusHidden() = withReader(
+        ReaderSettings(showPageButtons = false),
+        listOf(
+            LocalChapter("first", "第一章 " + "很长的章节标题".repeat(12), List(20) { "第${it + 1}段正文。".repeat(30) }),
+            LocalChapter("second", "第二章 归来", List(20) { "归途上的第${it + 1}段。".repeat(30) })
+        )
+    ) { app, ref ->
+        compose.onNodeWithTag("reader-chapter-progress").assertTextEquals("本章 0%")
+        compose.onNodeWithTag("reader-page-counter").assertDoesNotExist()
+        compose.onNodeWithTag("reader-status-clock").assertIsDisplayed()
+        val title = compose.onNodeWithTag("reader-status-chapter-title").assertIsDisplayed()
+        val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+        title.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        assertTrue("长章节名应在一行内省略", layouts.single().isLineEllipsized(0))
+        compose.onNodeWithTag("reader-scroll").performTouchInput { click(center) }
+        assertToolbarHidden()
+        compose.onNodeWithTag("reader-reading-status-bar").assertIsDisplayed()
+        compose.onNodeWithTag("reader-scroll").performScrollToIndex(10)
+        val middle = compose.onNodeWithTag("reader-chapter-progress").fetchSemanticsNode()
+            .config[SemanticsProperties.Text].single().text.removePrefix("本章 ").removeSuffix("%").toInt()
+        assertTrue("滚动到章中应显示中间进度", middle in 1..99)
+        scrollToChapterEnd()
+        compose.onNodeWithTag("reader-chapter-progress").assertTextEquals("本章 100%")
+        screenshot("reader-scroll-status-bar")
+        compose.onNodeWithText("阅读下一章").performClick()
+        waitForChapter(app, ref, "second")
+        compose.onNodeWithTag("reader-status-chapter-title").assertTextEquals("第二章 归来")
+        compose.onNodeWithTag("reader-chapter-progress").assertTextEquals("本章 0%")
+        assertToolbarHidden()
+    }
+
+    @Test fun scrollStatusBarCanBeHiddenPerBookAndRestored() = verifyStatusBarPreference("scroll")
+
+    @Test fun pagedStatusBarCanBeHiddenPerBookAndRestored() = verifyStatusBarPreference("auto")
+
+    private fun verifyStatusBarPreference(mode: String) = withReader(
+        ReaderSettings(paginationMode = mode, showPageButtons = false)
+    ) { app, ref ->
+        val bodyTag = if(mode == "auto") "reader-page" else "reader-scroll"
+        val original = snapshot(bodyTag)
+        compose.onNodeWithTag("reader-reading-status-bar").assertIsDisplayed()
+        compose.onNodeWithContentDescription("阅读设置").performClick()
+        compose.onNodeWithText("仅应用于这本书").performClick()
+        compose.onNodeWithText("翻页").performClick()
+        compose.onNodeWithText("底部阅读信息").performScrollTo().performClick()
+        compose.onNodeWithText("关闭面板").performClick()
+        compose.onNodeWithTag("reader-reading-status-bar").assertDoesNotExist()
+        compose.onNodeWithTag("reader-page-counter").assertDoesNotExist()
+        compose.onNodeWithTag("reader-seek-bar").assertIsDisplayed()
+        compose.onNodeWithTag(bodyTag).performTouchInput { click(center) }
+        assertToolbarHidden()
+        compose.onNodeWithTag("reader-status-clock").assertDoesNotExist()
+        runBlocking { app.store.flush() }
+        val saved = LocalStore(compose.activity).state.value
+        assertTrue(saved.reader.showReadingStatusBar)
+        assertFalse(saved.bookSettings.getValue(ref.key).showReadingStatusBar)
+        compose.onNodeWithTag(bodyTag).performTouchInput { click(center) }
+        compose.onNodeWithContentDescription("阅读设置").performClick()
+        compose.onNodeWithText("仅应用于这本书").performScrollTo().performClick()
+        compose.onNodeWithText("关闭面板").performClick()
+        compose.onNodeWithTag("reader-reading-status-bar").assertIsDisplayed()
+        assertEquals("恢复底栏后应回到原有正文布局", original, snapshot(bodyTag))
+    }
+
     @Test fun edgeDotKeepsWindowPositionAcrossReaderMenusStatusBarAndHistory() = withReader(ReaderSettings()) { app, _ ->
         compose.runOnIdle { app.store.update { it.copy(edgeToolbar = EdgeToolbarSettings(position = .7f, idleSeconds = 0)) } }
         fun dotBounds(): Rect {
@@ -431,6 +506,8 @@ class ReaderToolbarOverlayTest {
         val firstPageCount = pageNumbers().second
         assertTrue("测试首章应超过一页", firstPageCount > 1)
         assertChapterProgress(1, firstPageCount)
+        compose.onNodeWithTag("reader-status-clock").assertIsDisplayed()
+        compose.onNodeWithTag("reader-status-chapter-title").assertTextEquals("第一章 长途")
         compose.onNodeWithText("下一页").assertDoesNotExist()
         compose.onNodeWithTag("reader-page").performTouchInput { click(center) }
         assertToolbarHidden()
@@ -454,6 +531,7 @@ class ReaderToolbarOverlayTest {
         val secondPageCount = pageNumbers().second
         assertTrue("不同长度的章节应重新计算总页数", secondPageCount < firstPageCount)
         assertChapterProgress(1, secondPageCount)
+        compose.onNodeWithTag("reader-status-chapter-title").assertTextEquals("第二章 归来")
         assertToolbarHidden()
         compose.onNodeWithText("下一页").assertDoesNotExist()
     }

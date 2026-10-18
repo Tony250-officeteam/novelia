@@ -14,6 +14,26 @@ class WebDavProjectionTest {
     private val local = BookRef("local", "file1")
     private fun documents(state: LibraryState) = SyncReplica(deviceId = "a").track(emptyMap(), WebDavProjection.library(state)).bind("dataset").documents
 
+    @Test fun readingStatusBarSyncsGlobalAndBookChoicesWhileLegacyRecordsKeepLocalChoices() {
+        val remote = LibraryState(reader = ReaderSettings(showReadingStatusBar = false),
+            bookSettings = mapOf(web.key to ReaderSettings(showReadingStatusBar = true)))
+        val docs = documents(remote)
+        val settings = docs.getValue(SyncDomain.SETTINGS)
+        WebDavProjection.validateRecords(settings)
+        val local = LibraryState(reader = ReaderSettings(),
+            bookSettings = mapOf(web.key to ReaderSettings(showReadingStatusBar = false)))
+        val restored = WebDavProjection.applyLibrary(local, docs, setOf(SyncDomain.SETTINGS))
+        assertFalse(restored.reader.showReadingStatusBar)
+        assertTrue(restored.bookSettings.getValue(web.key).showReadingStatusBar)
+        val legacy = settings.copy(records = settings.records.mapValues { (_, record) ->
+            record.copy(fields = record.fields - "showReadingStatusBar")
+        })
+        WebDavProjection.validateRecords(legacy)
+        val legacyRestored = WebDavProjection.applyLibrary(local, mapOf(SyncDomain.SETTINGS to legacy), setOf(SyncDomain.SETTINGS))
+        assertTrue(legacyRestored.reader.showReadingStatusBar)
+        assertFalse(legacyRestored.bookSettings.getValue(web.key).showReadingStatusBar)
+    }
+
     @Test fun exactColorEditsAreTrackedAndRoundTripWithoutEnablingDevicePreferences() {
         val before = LibraryState(reader = ReaderSettings(theme = "custom"),
             bookSettings = mapOf(web.key to ReaderSettings(theme = "custom")))
