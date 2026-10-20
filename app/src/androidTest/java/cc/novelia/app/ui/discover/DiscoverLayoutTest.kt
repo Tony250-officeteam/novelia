@@ -14,6 +14,7 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.unit.dp
 import cc.novelia.app.data.model.BookCard
 import cc.novelia.app.data.model.BookRef
@@ -147,6 +148,33 @@ class DiscoverLayoutTest {
     private var editing by mutableStateOf(false)
     private var searches = 0
 
+    @Test fun inlineSearchAppendsOnEntryAndAfterSubmissionButRespectsManualSelection() {
+        showSearch()
+        compose.onNodeWithTag("discover-search-bar").performClick()
+        val input = compose.onNodeWithTag("discover-search-input")
+        input.assert(SemanticsMatcher.expectValue(SemanticsProperties.TextSelectionRange, TextRange(2)))
+        input.performTextInput("学院")
+        input.assertTextContains("魔法学院")
+
+        input.performTextInputSelection(TextRange(2))
+        input.performTextInput("新")
+        input.performTextInput("的")
+        input.assertTextContains("魔法新的学院")
+        input.performTextInputSelection(TextRange(2, 4))
+        input.performTextInput("旧")
+        input.assertTextContains("魔法旧学院").performImeAction()
+
+        compose.onNodeWithTag("discover-search-bar").performClick()
+        input.assert(SemanticsMatcher.expectValue(SemanticsProperties.TextSelectionRange, TextRange(5)))
+        input.performTextInput("冒险")
+        input.assertTextContains("魔法旧学院冒险")
+        compose.runOnIdle {
+            assertEquals("魔法旧学院冒险", query)
+            assertEquals("魔法旧学院", submitted)
+            assertEquals(1, searches)
+        }
+    }
+
     @Test fun inlineSearchKeepsListPositionAndScrollingPreservesItsDraft() {
         showSearch()
         compose.onNodeWithTag("discover-search-input").assertDoesNotExist()
@@ -161,9 +189,10 @@ class DiscoverLayoutTest {
         compose.runOnIdle { assertEquals("旅行", query); assertEquals(0, searches) }
 
         compose.onNodeWithTag("discover-search-bar").performClick()
-        compose.onNodeWithTag("discover-search-input").assertTextContains("旅行").performImeAction()
+        compose.onNodeWithTag("discover-search-input").performTextInput("冒险")
+        compose.onNodeWithTag("discover-search-input").assertTextContains("旅行冒险").performImeAction()
         compose.onNodeWithTag("discover-search-input").assertDoesNotExist()
-        compose.onNodeWithTag("discover-search-bar").assertTextContains("旅行")
+        compose.onNodeWithTag("discover-search-bar").assertTextContains("旅行冒险")
         compose.runOnIdle { assertEquals(1, searches) }
     }
 
@@ -182,6 +211,10 @@ class DiscoverLayoutTest {
         compose.onNodeWithText("下一屏").performClick()
         compose.onNodeWithTag("discover-search-input").assertDoesNotExist()
         compose.onNodeWithTag("discover-search-bar").assertTextContains("魔法")
+        compose.onNodeWithTag("discover-search-bar").performClick()
+        compose.onNodeWithTag("discover-search-input").performTextInput("学院")
+        compose.onNodeWithTag("discover-search-input").assertTextContains("魔法学院")
+        compose.runOnIdle { assertEquals("魔法学院", query); assertEquals(0, searches) }
     }
 
     @Test fun tagsExpandAllValuesIndependentlyWithoutOpeningTheBook() {

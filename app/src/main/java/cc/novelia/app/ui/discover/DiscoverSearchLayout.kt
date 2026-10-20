@@ -26,7 +26,9 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import cc.novelia.app.ui.components.base.rememberCloudFilterCollapse
@@ -74,8 +76,15 @@ import cc.novelia.app.ui.theme.appReducedMotion
                         horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Outlined.Search, null, Modifier.size(20.dp))
                         if(editing) {
+                            // 每次重新编辑从草稿末尾续写，编辑过程中保留用户的光标、选区和输入法组合状态。
+                            var fieldValue by remember { mutableStateOf(TextFieldValue(query, TextRange(query.length))) }
+                            val currentValue = if(fieldValue.text == query) fieldValue else TextFieldValue(query, TextRange(query.length))
+                            SideEffect { fieldValue = currentValue }
                             LaunchedEffect(Unit) { focus.requestFocus(); keyboard?.show() }
-                            BasicTextField(query, onQueryChange,
+                            BasicTextField(currentValue, {
+                                fieldValue = it
+                                if(it.text != query) onQueryChange(it.text)
+                            },
                                 modifier = Modifier.weight(1f).focusRequester(focus).testTag("discover-search-input"),
                                 textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
                                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary), singleLine = true,
