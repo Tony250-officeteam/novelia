@@ -56,16 +56,16 @@ import cc.novelia.app.ui.components.base.TextPrompt
 import cc.novelia.app.ui.components.base.friendlyMessage
 import cc.novelia.app.ui.navigation.AppController
 
-@Composable fun CloudShelf(c: AppController, onOpenBook: (BookRef) -> Unit = c::book, selectedBookKey: String? = null) {
+@Composable fun CloudShelf(c: AppController, onOpenBook: (BookRef) -> Unit = c::book, selectedBookKey: String? = null, active: Boolean = true) {
     val profile by c.session.profile.collectAsStateWithLifecycle()
     if (profile == null) {
         EmptyState("连接你的云端书架", "登录原站账号，访问网络小说和文库收藏。", Icons.Outlined.CloudQueue, "登录", { c.go("login") })
         return
     }
-    key(profile!!.username) { CloudShelfAccount(c, profile!!.username, onOpenBook, selectedBookKey) }
+    key(profile!!.username) { CloudShelfAccount(c, profile!!.username, onOpenBook, selectedBookKey, active) }
 }
 
-@Composable private fun CloudShelfAccount(c: AppController, account: String, onOpenBook: (BookRef) -> Unit, selectedBookKey: String?) {
+@Composable private fun CloudShelfAccount(c: AppController, account: String, onOpenBook: (BookRef) -> Unit, selectedBookKey: String?, active: Boolean) {
     val local by c.store.state.collectAsStateWithLifecycle()
     var kind by rememberSaveable { mutableIntStateOf(0) }
     var folderId by rememberSaveable { mutableStateOf("") }
@@ -94,7 +94,10 @@ import cc.novelia.app.ui.navigation.AppController
     fun toggleSelection(book: BookCard) {
         if(!bulkBusy) selection = if(book.ref.key in selection) selection - book.ref.key else selection + (book.ref.key to book)
     }
-    BackHandler(managing && !bulkBusy) { managing = false; selection = emptyMap() }
+    BackHandler(active && managing && !bulkBusy) { managing = false; selection = emptyMap() }
+    LaunchedEffect(active) {
+        if(!active) { managing = false; selection = emptyMap(); expanded = false; bulkLocal = null; bulkRemoval = null }
+    }
     // 行内重试或后台重试可能独立于本页菜单回调完成；
     // 成功后刷新远端结果，由 AsyncContent 保留当前视口。
     val refreshKey = listOf(version, if(bulkBusy) bulkRefreshAt else local.syncStatus[account]?.lastSuccessAt ?: 0L)

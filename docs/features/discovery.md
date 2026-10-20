@@ -15,7 +15,9 @@
   → 显示结果
 ```
 
-输入草稿 `query` 与当前结果对应的 `submitted` 分开。修改分类、来源或条件后重置页码，加载身份包含这些条件和账号能力；旧响应不能覆盖新查询。
+输入草稿 `query` 与当前结果对应的 `submitted` 分开。提交搜索或恢复保存的搜索后重置页码，修改来源或筛选条件后重置对应分区的页码；加载身份包含这些条件和账号能力，旧响应不能覆盖新查询。
+
+“为你发现、网络小说、文库小说”可点击顶部标签或左右滑动切换，首尾不会循环。搜索、保存的搜索与推荐区的“更多”使用同一个分页位置，标签随页面同步。三个分区分别保留滚动和控件状态，网络小说与文库小说的页码、结果缓存彼此独立，普通分区切换不重置已浏览的页码。切换分区后收起搜索编辑，输入草稿和已提交关键词保留。普通模式平滑切页，墨水屏或减少动画时点击标签、搜索跳转直接到目标分区。
 
 “为你发现”是网络热门与文库列表的有限展示。排行榜从发现页进入。内容书源标识在 [Providers.kt](../../app/src/main/java/cc/novelia/app/data/catalog/Providers.kt)，与原站/镜像的访问线路不是一个概念。
 
@@ -76,4 +78,4 @@
 
 页面位于 [ui/discover](../../app/src/main/java/cc/novelia/app/ui/discover)，表达式、链接、过滤与词典位于 [data/catalog](../../app/src/main/java/cc/novelia/app/data/catalog)。
 
-回归优先选择 `SearchExpressionBoundaryTest`、`NovelLocalFilterTest`、`NovelFilterCacheTest`、`KeywordCatalogTest`、`BookVisibilityTest`、`SavedSearchPresetTest`。设备测试覆盖条件切换、页码重置、空结果、标签分类批选、大字号和电子纸交互，命令见[测试指南](../quality/testing.md)。
+回归优先选择 `SearchExpressionBoundaryTest`、`NovelLocalFilterTest`、`NovelFilterCacheTest`、`KeywordCatalogTest`、`BookVisibilityTest`、`SavedSearchPresetTest`。`DiscoverSwipeTest` 覆盖分区滑动边界、标签与程序跳转同步、分区状态恢复、搜索草稿保留和横向搜索记录的手势。其他设备测试覆盖条件切换、页码重置、空结果、标签分类批选、大字号和电子纸交互，命令见[测试指南](../quality/testing.md)。

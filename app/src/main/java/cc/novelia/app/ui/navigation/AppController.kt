@@ -72,8 +72,8 @@ class AppController(val app: NoveliaApplication, val nav: NavHostController, val
     var pendingFavorite by mutableStateOf<BookCard?>(null)
     var pendingFavoriteCloud by mutableStateOf(false)
     private var celebration: Job? = null
-    /** 进入书籍详情覆盖发现页时，保留最近一页的发现结果。 */
-    internal var discoverPage: Pair<Any, Page<BookCard>>? = null
+    /** 分区切换或进入详情时，分别保留网络小说、文库小说最近一页的结果。 */
+    internal val discoverPages = mutableMapOf<Int, Pair<Any, Page<BookCard>>>()
     internal var filteredDiscoverPage: Pair<Any, cc.novelia.app.data.catalog.FilteredNovelBatch>? = null
     private val filterMetadataCache = NovelFilterMetadataCache(metadataCache)
     private val filterPageCache = NovelFilterPageCache()

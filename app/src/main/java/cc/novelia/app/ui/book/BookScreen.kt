@@ -197,7 +197,7 @@ import kotlinx.coroutines.withContext
                         Row(Modifier.fillMaxWidth().padding(20.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                             BookCover(book, Modifier.width(94.dp).height(134.dp))
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Text(book.title, style = MaterialTheme.typography.titleLarge)
+                                BookDetailTitle(book.ref.key, book.title)
                                 Text("${document.format.uppercase()} · ${toc.size} 章", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                                 Text("已保存在此设备，可离线阅读。", style = MaterialTheme.typography.bodyMedium)
                             }
@@ -282,7 +282,7 @@ import kotlinx.coroutines.withContext
                 if(cover != null) Modifier.combinedClickable(onClick = {},
                     onLongClickLabel = "放大查看封面", onLongClick = { expandedCover = true }) else Modifier
             ))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) { Text(book.title, style = MaterialTheme.typography.titleLarge); Text(subtitle, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary); Text(book.originalTitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            BookDetailTitles(book, subtitle, Modifier.weight(1f))
         }
         actions?.invoke()
     }
