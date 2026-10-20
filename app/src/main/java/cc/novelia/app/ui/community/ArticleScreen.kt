@@ -32,7 +32,6 @@ import cc.novelia.app.ui.navigation.ObserveForumLogin
 import cc.novelia.app.ui.navigation.FORUM_FAVORITE_REQUEST
 import cc.novelia.app.ui.navigation.ForumFavoriteRequest
 import cc.novelia.app.ui.navigation.loginForForumFavorite
-import cc.novelia.app.ui.theme.MotionContent
 import kotlinx.coroutines.CancellationException
 
 @Composable fun ArticleScreen(c: AppController, id: String, navigationState: SavedStateHandle? = null) {
@@ -80,10 +79,8 @@ import kotlinx.coroutines.CancellationException
             }
             Column {
                 ForumRulesReminder(c)
-                PrimaryTabRow(tab) { listOf("文章内容", "讨论 ${article.numComments}").forEachIndexed { i, label -> Tab(tab == i, { tab = i }, text = { Text(label) }) } }
-                MotionContent(tab, Modifier.weight(1f), animateInitial = false) {
-                    tabState.SaveableStateProvider(tab) {
-                        if(tab == 0) {
+                ArticleContentPager(tab, { tab = it }, article.numComments, tabState, Modifier.weight(1f)) { panel ->
+                    if(panel == 0) {
                         val articleScroll = rememberLazyListState()
                         AppLazyColumn(state = articleScroll, contentPadding = PaddingValues(20.dp)) {
                             item {
@@ -112,8 +109,7 @@ import kotlinx.coroutines.CancellationException
                                 }
                             } }
                         }
-                        } else ForumCommentsPanel(c, forumId, article.locked)
-                    }
+                    } else ForumCommentsPanel(c, forumId, article.locked)
                 }
             }
         }

@@ -9,6 +9,7 @@ import cc.novelia.app.data.model.WebOutline
 import cc.novelia.app.data.model.WebDetail
 import cc.novelia.app.data.model.TocItem
 import cc.novelia.app.data.model.LibraryState
+import cc.novelia.app.data.model.PendingAction
 import cc.novelia.app.data.library.withCloudReadingMetadata
 import cc.novelia.app.data.storage.appJson
 import kotlinx.serialization.encodeToString
@@ -19,6 +20,36 @@ import java.time.ZoneId
 
 class BookListPresentationTest {
     private val book = BookCard(BookRef("syosetu", "n1"), "风与书页", total = 10)
+
+    @Test fun discoveryFavoritesUseBookIdentityAndCurrentAccountIntent() {
+        val cloud = book.copy(favored = "reading")
+        val local = BookListPresentation(books = mapOf(book.ref.key to SavedBook(cloud)))
+        assertTrue(local.favoriteState(book).local)
+        assertNull(local.favoriteState(cloud).cloudFolder)
+        assertFalse(local.favoriteState(book.copy(ref = BookRef("kakuyomu", "n1"))).isSaved)
+        assertFalse(BookListPresentation().favoriteState(cloud).isSaved)
+        val cloudOnly = BookListPresentation(account = "alice").favoriteState(cloud)
+        assertFalse(cloudOnly.local)
+        assertEquals("reading", cloudOnly.cloudFolder)
+        val both = local.copy(account = "alice").favoriteState(cloud)
+        assertTrue(both.local)
+        assertEquals("reading", both.cloudFolder)
+
+        val removal = PendingAction("remove", "alice", "DELETE", "user/favored-web/reading/${book.ref.key}")
+        val pending = BookListPresentation(account = "alice", pending = listOf(removal))
+        assertFalse(pending.favoriteState(cloud).isSaved)
+        val removedCloud = pending.copy(books = local.books).favoriteState(cloud)
+        assertTrue(removedCloud.local)
+        assertNull(removedCloud.cloudFolder)
+        assertFalse(pending.copy(account = "bob").favoriteState(book).isSaved)
+        val queued = pending.copy(pending = listOf(removal.copy(method = "PUT"))).favoriteState(book)
+        assertEquals("reading", queued.cloudFolder)
+        assertEquals("PUT", queued.pendingMethod)
+
+        val wenku = book.copy(ref = BookRef("wenku", "n1"))
+        assertFalse(pending.copy(pending = listOf(removal.copy(method = "PUT"))).favoriteState(wenku).isSaved)
+        assertEquals("reading", pending.copy(pending = listOf(removal.copy(method = "PUT", path = "user/favored-wenku/reading/n1"))).favoriteState(wenku).cloudFolder)
+    }
 
     @Test fun cloudOnlyHistoryIsNotUnreadOrAFabricatedZeroPercent() {
         val remote = appJson.decodeFromString<WebOutline>("""{"providerId":"syosetu","novelId":"n1","total":10,"lastReadAt":1700000000}""").card("alice")

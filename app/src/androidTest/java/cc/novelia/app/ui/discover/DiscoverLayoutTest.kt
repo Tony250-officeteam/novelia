@@ -17,6 +17,11 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.dp
 import cc.novelia.app.data.model.BookCard
 import cc.novelia.app.data.model.BookRef
+import cc.novelia.app.data.model.SavedBook
+import cc.novelia.app.data.model.PendingAction
+import cc.novelia.app.data.updates.BookUpdateInfo
+import cc.novelia.app.ui.components.book.BookListPresentation
+import cc.novelia.app.ui.components.book.LocalBookListPresentation
 import cc.novelia.app.ui.components.base.AppLazyColumn
 import cc.novelia.app.ui.theme.AppInteractionMode
 import org.junit.Assert.*
@@ -25,6 +30,89 @@ import org.junit.Test
 
 class DiscoverLayoutTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test fun savingABookDoesNotAddShelfMetadataToDiscovery() {
+        var web by mutableStateOf(BookCard(BookRef("syosetu", "metadata-web"), "网络小说", total = 103, novelType = "已完结"))
+        var wenku by mutableStateOf(BookCard(BookRef("wenku", "metadata-wenku"), "文库小说"))
+        var presentation by mutableStateOf(BookListPresentation())
+        compose.setContent {
+            CompositionLocalProvider(LocalBookListPresentation provides presentation) {
+                MaterialTheme {
+                    Column(Modifier.width(360.dp)) {
+                        DiscoverBookRow(web, {})
+                        DiscoverBookRow(wenku, {})
+                    }
+                }
+            }
+        }
+        compose.onNodeWithText("已完结 · 103 章", useUnmergedTree = true).assertIsDisplayed()
+        compose.runOnIdle {
+            presentation = BookListPresentation(books = mapOf(
+                web.ref.key to SavedBook(web.copy(authors = listOf("仅书架作者"), totalCharacters = 761_000, updateAt = 1_700_000_000)),
+                wenku.ref.key to SavedBook(wenku.copy(publishedVolumeCount = 8, updateAt = 1_700_000_000)),
+            ), updates = mapOf(web.ref.key to BookUpdateInfo(newChapters = 3)))
+        }
+        compose.onNodeWithTag("book-favorite-local-${web.ref.key}", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("已完结 · 103 章", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("仅书架作者", substring = true, useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithText("万字", substring = true, useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithText("8 卷", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithText("更新 3 章", useUnmergedTree = true).assertDoesNotExist()
+        for(book in listOf(web, wenku)) compose.onNodeWithTag("book-update-date-${book.ref.key}", useUnmergedTree = true).assertDoesNotExist()
+
+        // 列表自身（包括启用筛选后的补查结果）提供的信息仍正常显示。
+        compose.runOnIdle {
+            web = web.copy(authors = listOf("列表作者"), totalCharacters = 762_000, updateAt = 1_700_000_000)
+            wenku = wenku.copy(publishedVolumeCount = 9)
+            presentation = BookListPresentation()
+        }
+        compose.onNodeWithText("列表作者", substring = true, useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("万字", substring = true, useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("9 卷", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithTag("book-update-date-${web.ref.key}", useUnmergedTree = true).assertIsDisplayed()
+    }
+
+    @Test fun recommendationAndSearchLabelsDistinguishFavoriteSourcesWithoutCoveringArt() {
+        val web = BookCard(BookRef("syosetu", "favorite-web"), "网络小说")
+        val wenku = BookCard(BookRef("wenku", "favorite-wenku"), "文库小说", favored = "reading")
+        var presentation by mutableStateOf(BookListPresentation(account = "alice"))
+        compose.setContent {
+            CompositionLocalProvider(LocalBookListPresentation provides presentation) {
+                MaterialTheme {
+                    Column(Modifier.width(360.dp)) {
+                        DiscoverBookRow(web, {})
+                        DiscoverBookRow(wenku, {})
+                    }
+                }
+            }
+        }
+        compose.onNodeWithTag("book-favorite-${web.ref.key}", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithTag("book-favorite-cloud-${wenku.ref.key}", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithTag("book-favorite-local-${wenku.ref.key}", useUnmergedTree = true).assertDoesNotExist()
+        compose.runOnIdle { presentation = presentation.copy(books = mapOf(web.ref.key to SavedBook(web), wenku.ref.key to SavedBook(wenku))) }
+        compose.onNodeWithTag("book-favorite-local-${web.ref.key}", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithTag("book-favorite-cloud-${web.ref.key}", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithTag("book-favorite-local-${wenku.ref.key}", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithTag("book-favorite-cloud-${wenku.ref.key}", useUnmergedTree = true).assertIsDisplayed()
+        for(book in listOf(web, wenku)) {
+            val cover = compose.onNodeWithContentDescription("${book.title} 默认封面", useUnmergedTree = true).getUnclippedBoundsInRoot()
+            val labels = compose.onNodeWithTag("book-favorite-${book.ref.key}", useUnmergedTree = true).getUnclippedBoundsInRoot()
+            assertTrue("收藏标记应位于封面右侧，不能覆盖封面", labels.left >= cover.right)
+        }
+        val queued = PendingAction("favorite", "alice", "PUT", "user/favored-wenku/reading/${wenku.ref.id}")
+        compose.runOnIdle { presentation = presentation.copy(pending = listOf(queued)) }
+        compose.onNodeWithText("云端收藏待同步", useUnmergedTree = true).assertIsDisplayed()
+        compose.runOnIdle { presentation = presentation.copy(pending = listOf(queued.copy(method = "DELETE"))) }
+        compose.onNodeWithTag("book-favorite-cloud-${wenku.ref.key}", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithTag("book-favorite-local-${wenku.ref.key}", useUnmergedTree = true).assertIsDisplayed()
+        compose.runOnIdle { presentation = presentation.copy(account = null) }
+        compose.onNodeWithTag("book-favorite-cloud-${wenku.ref.key}", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithTag("book-favorite-local-${web.ref.key}", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithTag("book-favorite-local-${wenku.ref.key}", useUnmergedTree = true).assertIsDisplayed()
+        compose.runOnIdle { presentation = presentation.copy(books = emptyMap()) }
+        compose.onNodeWithTag("book-favorite-${web.ref.key}", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithTag("book-favorite-${wenku.ref.key}", useUnmergedTree = true).assertDoesNotExist()
+    }
 
     @Test fun switchingActionsAnimatesSearchWidthAndStaticModeFinishesImmediately() {
         var wenku by mutableStateOf(false)

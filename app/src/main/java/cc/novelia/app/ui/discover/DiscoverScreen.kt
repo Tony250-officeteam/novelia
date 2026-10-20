@@ -39,7 +39,6 @@ import cc.novelia.app.ui.components.base.AppLazyColumn
 import cc.novelia.app.ui.components.base.AppScrollColumn
 import cc.novelia.app.ui.components.base.AppSheet
 import cc.novelia.app.ui.components.base.AsyncContent
-import cc.novelia.app.ui.components.book.BookRow
 import cc.novelia.app.ui.components.base.ChoiceRow
 import cc.novelia.app.ui.components.base.CharacterCountFilterFields
 import cc.novelia.app.ui.components.base.NovelLocalFilterSaver
@@ -77,6 +76,7 @@ import kotlinx.coroutines.sync.withPermit
     var localFilter by rememberSaveable(stateSaver = NovelLocalFilterSaver) { mutableStateOf(NovelLocalFilter()) }
     val reducedMotion = appReducedMotion()
     val local by c.store.state.collectAsStateWithLifecycle(); val profile by c.session.profile.collectAsStateWithLifecycle()
+    val favoriteRevision = local.syncStatus[profile?.username]?.lastSuccessAt
     val cacheGeneration by c.store.cacheGeneration.collectAsStateWithLifecycle()
     val keywords by c.app.keywords.state.collectAsStateWithLifecycle()
     val keywordIndex by c.app.keywords.displayIndex.collectAsStateWithLifecycle()
@@ -123,7 +123,7 @@ import kotlinx.coroutines.sync.withPermit
             MotionContent(category, Modifier.weight(1f), animateInitial = false) {
                 Column(Modifier.fillMaxSize()) {
                     if(category == 0) {
-                        AsyncContent(listOf("recommend", profile?.username, local.blockedAuthors), load = { coroutineScope { val web = async { c.api.webList(0, sort = 1) }; val wenku = async { c.api.wenkuList(0) }; enrichAuthors(web.await().items.map { it.card() }, c, local.blockedAuthors) to enrichAuthors(wenku.await().items.map { it.card() }, c, local.blockedAuthors) } }, revealContent = true) { (web, wenku), refresh ->
+                        AsyncContent(listOf("recommend", profile?.username, local.blockedAuthors, favoriteRevision), load = { coroutineScope { val web = async { c.api.webList(0, sort = 1) }; val wenku = async { c.api.wenkuList(0) }; enrichAuthors(web.await().items.map { it.card() }, c, local.blockedAuthors) to enrichAuthors(wenku.await().items.map { it.card() }, c, local.blockedAuthors) } }, revealContent = true) { (web, wenku), refresh ->
                             val visibleWeb = remember(web, local.blockedBooks, local.blockedTags, local.blockedAuthors) { web.asSequence().filter { visibleBook(it, local) }.take(8).toList() }
                             val visibleWenku = remember(wenku, local.blockedBooks, local.blockedTags, local.blockedAuthors) { wenku.asSequence().filter { visibleBook(it, local) }.take(6).toList() }
                             AppLazyColumn(contentPadding = PaddingValues(bottom = 20.dp), onPageTurn = onPageTurn) {
@@ -137,9 +137,9 @@ import kotlinx.coroutines.sync.withPermit
                                 }
                                 if(local.savedSearchPresets.isNotEmpty()) item(key = "saved-searches", contentType = "searches") { SectionTitle("保存的搜索", "管理") { searchListOpen = "saved" }; Row(Modifier.appHorizontalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) { local.savedSearchPresets.forEach { value -> AppActionChip(onClick = { applyPreset(value) }, label = { Text(value.name.take(20)) }) } } }
                                 item(key = "web-heading", contentType = "heading") { SectionTitle("热门网络小说", "更多") { category = 1; sort = 1 } }
-                                items(visibleWeb, key = { "web-${it.ref.key}" }, contentType = { "book" }) { BookRow(it, { c.book(it.ref) }, if(reducedMotion) Modifier else Modifier.animateItem(fadeInSpec = tween(AppMotion.Quick), placementSpec = tween(AppMotion.Standard), fadeOutSpec = tween(AppMotion.Exit)), showReadingProgress = false) }
+                                items(visibleWeb, key = { "web-${it.ref.key}" }, contentType = { "book" }) { DiscoverBookRow(it, { c.book(it.ref) }, if(reducedMotion) Modifier else Modifier.animateItem(fadeInSpec = tween(AppMotion.Quick), placementSpec = tween(AppMotion.Standard), fadeOutSpec = tween(AppMotion.Exit)), keywordLabels = keywordLabels) }
                                 item(key = "wenku-heading", contentType = "heading") { SectionTitle("文库新近更新", "更多") { category = 2 } }
-                                items(visibleWenku, key = { "wenku-${it.ref.key}" }, contentType = { "book" }) { BookRow(it, { c.book(it.ref) }, if(reducedMotion) Modifier else Modifier.animateItem(fadeInSpec = tween(AppMotion.Quick), placementSpec = tween(AppMotion.Standard), fadeOutSpec = tween(AppMotion.Exit)), showReadingProgress = false) }
+                                items(visibleWenku, key = { "wenku-${it.ref.key}" }, contentType = { "book" }) { DiscoverBookRow(it, { c.book(it.ref) }, if(reducedMotion) Modifier else Modifier.animateItem(fadeInSpec = tween(AppMotion.Quick), placementSpec = tween(AppMotion.Standard), fadeOutSpec = tween(AppMotion.Exit)), keywordLabels = keywordLabels) }
                                 item(key = "refresh", contentType = "controls") { AppTextButton(onClick = refresh, Modifier.fillMaxWidth()) { Text("刷新推荐") } }
                             }
                         }
@@ -162,7 +162,7 @@ import kotlinx.coroutines.sync.withPermit
                         val effectiveWenkuLevel = wenkuLevel.coerceIn(0, if(profile?.canEdit == true) 6 else 4)
                         val requestKey = listOf(category, page, submitted, source, type, translate, sort, effectiveWebLevel,
                             effectiveWenkuLevel, profile?.username, profile?.canEdit, local.blockedAuthors, searchRevision,
-                            localFilter, local.blockedBooks, local.blockedTags, cacheGeneration)
+                            localFilter, local.blockedBooks, local.blockedTags, cacheGeneration, favoriteRevision)
                         if(category == 1 && localFilter.active) FilteredNovelList(c, requestKey, localFilter, local,
                             loadPage = { next, refresh -> c.filteredWebList(next, submitted, source, type, effectiveWebLevel, translate, sort, refresh) },
                             onReset = ::resetFilters, keywordLabels = keywordLabels, onPageTurn = onPageTurn)

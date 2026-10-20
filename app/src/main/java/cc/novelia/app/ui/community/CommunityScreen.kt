@@ -37,7 +37,6 @@ import cc.novelia.app.ui.components.base.rememberDebouncedQuery
 import cc.novelia.app.ui.navigation.AppController
 import cc.novelia.app.ui.navigation.ObserveForumLogin
 import cc.novelia.app.ui.theme.AppMotion
-import cc.novelia.app.ui.theme.MotionContent
 import cc.novelia.app.ui.theme.appReducedMotion
 import cc.novelia.app.ui.theme.motionClickable
 
@@ -104,29 +103,37 @@ import cc.novelia.app.ui.theme.motionClickable
     }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             ForumRulesReminder(c)
-            ForumCategoryTabs(available, category) { category = it; page = 0; source = 0 }
-            ForumFeedControls(when(source) { 1 -> "云端收藏"; 2 -> "我的帖子"; else -> "全部帖子" },
-                search, searchExpanded,
-                if(source == 0) "搜索论坛帖子" else "在本页文章中查找",
-                onExpanded = { searchExpanded = it }, onSearch = { search = it; page = 0 }) {
-                if(source == 0 && availableTags.isNotEmpty()) ForumTagFilterToggle(tagsExpanded,
-                    availableTags.firstOrNull { it.id == selectedTagId }?.name) { tagsExpanded = !tagsExpanded }
-                if(source == 0) ForumSortPicker(sort) { sort = it; page = 0 }
-                else AppTextButton(onClick = { showFeed(0) }) { Text("返回全部帖子") }
-            }
-            FilterPanelVisibility(source == 0 && tagsExpanded) {
-                ForumTagFilter(availableTags, selectedTagId) { tagId = it; page = 0 }
-            }
-            val settledSearch = rememberDebouncedQuery(search)
-            MotionContent(listOf(category, source), Modifier.weight(1f), animateInitial = false) {
-                AsyncContent(listOf(category, page, settledSearch, source, sort, selectedTagId, forumBinding, profile?.role, blacklistRevision), load = {
-                    when(source) { 1 -> c.forumApi.favorites(page); 2 -> c.forumApi.myPosts(page); else -> c.forumApi.posts(page, category, settledSearch, sort.visibleSort.apiValue, listOfNotNull(selectedTagId)) }
+            ForumCategoryPager(available, category, { next ->
+                if(category != next) { category = next; tagId = null }
+                page = 0; source = 0
+            }, Modifier.weight(1f), controls = {
+                ForumFeedControls(when(source) { 1 -> "云端收藏"; 2 -> "我的帖子"; else -> "全部帖子" },
+                    search, searchExpanded,
+                    if(source == 0) "搜索论坛帖子" else "在本页文章中查找",
+                    onExpanded = { searchExpanded = it }, onSearch = { search = it; page = 0 }) {
+                    if(source == 0 && availableTags.isNotEmpty()) ForumTagFilterToggle(tagsExpanded,
+                        availableTags.firstOrNull { it.id == selectedTagId }?.name) { tagsExpanded = !tagsExpanded }
+                    if(source == 0) ForumSortPicker(sort) { sort = it; page = 0 }
+                    else AppTextButton(onClick = { showFeed(0) }) { Text("返回全部帖子") }
+                }
+                FilterPanelVisibility(source == 0 && tagsExpanded) {
+                    ForumTagFilter(availableTags, selectedTagId) { tagId = it; page = 0 }
+                }
+            }) { pageCategory ->
+                // 预加载相邻分类时只取第一页，不能带入当前分类的标签、页码或个人列表。
+                val active = pageCategory.slug == category
+                val feedPage = if(active) page else 0
+                val feedSource = if(active) source else 0
+                val feedTagId = selectedTagId.takeIf { active }
+                val settledSearch = rememberDebouncedQuery(search)
+                AsyncContent(listOf(pageCategory.slug, feedPage, settledSearch, feedSource, sort, feedTagId, forumBinding, profile?.role, blacklistRevision), load = {
+                    when(feedSource) { 1 -> c.forumApi.favorites(feedPage); 2 -> c.forumApi.myPosts(feedPage); else -> c.forumApi.posts(feedPage, pageCategory.slug, settledSearch, sort.visibleSort.apiValue, listOfNotNull(feedTagId)) }
                 }, revealContent = true) { result, _ ->
-                    val articles = remember(result.items, settledSearch, source, selectedTagId, state.blockedUsers, available) {
-                        result.items.filter { (source == 0 || it.title.contains(settledSearch, true)) && !it.authorBlocked && it.authorUsername !in state.blockedUsers }
-                            .map { it.article(available, if(source == 0) selectedTagId else null) }
+                    val articles = remember(result.items, settledSearch, feedSource, feedTagId, state.blockedUsers, available) {
+                        result.items.filter { (feedSource == 0 || it.title.contains(settledSearch, true)) && !it.authorBlocked && it.authorUsername !in state.blockedUsers }
+                            .map { it.article(available, if(feedSource == 0) feedTagId else null) }
                     }
-                    ArticleList(c, Page(result.pageCount(), articles), page, { page = it })
+                    ArticleList(c, Page(result.pageCount(), articles), feedPage, { if(active) page = it })
                 }
             }
         }

@@ -5,6 +5,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cc.novelia.app.data.model.BookCard
 import cc.novelia.app.data.model.Position
 import cc.novelia.app.data.model.SavedBook
+import cc.novelia.app.data.model.PendingAction
+import cc.novelia.app.ui.shelf.bookFavoriteState
+import cc.novelia.app.ui.shelf.BookFavoriteState
 import cc.novelia.app.data.library.acknowledgeCompletedBookUpdates
 import cc.novelia.app.data.storage.localReadingProgressCandidates
 import cc.novelia.app.data.storage.restoreLocalReadingProgress
@@ -89,18 +92,24 @@ internal data class BookListPresentation(
     val positions: Map<String, Position> = emptyMap(),
     val updates: Map<String, BookUpdateInfo> = emptyMap(),
     val account: String? = null,
-)
+    val pending: List<PendingAction> = emptyList(),
+) {
+    // 只采用当前列表响应的云端关系，不读取可能属于旧账号的本地 BookCard.favored。
+    fun favoriteState(book: BookCard): BookFavoriteState = bookFavoriteState(
+        book.ref, book.ref.key in books, book.favored, account, pending,
+    )
+}
 
 internal val LocalBookListPresentation = compositionLocalOf { BookListPresentation() }
 
 @Composable internal fun rememberBookListPresentation(c: AppController): BookListPresentation {
     val profile by c.session.profile.collectAsStateWithLifecycle()
     val source = remember(c.store) {
-        c.store.state.map { BookListPresentation(it.books.associateBy { saved -> saved.book.ref.key }, it.positions, it.bookUpdates) }
+        c.store.state.map { BookListPresentation(it.books.associateBy { saved -> saved.book.ref.key }, it.positions, it.bookUpdates, pending = it.pending) }
             .distinctUntilChanged()
     }
     val presentation by source.collectAsStateWithLifecycle(initialValue = remember(c.store) {
-        c.store.state.value.let { BookListPresentation(it.books.associateBy { saved -> saved.book.ref.key }, it.positions, it.bookUpdates) }
+        c.store.state.value.let { BookListPresentation(it.books.associateBy { saved -> saved.book.ref.key }, it.positions, it.bookUpdates, pending = it.pending) }
     })
     val legacyLocalPositions = remember(c.store, presentation.books, presentation.positions) {
         c.store.state.value.localReadingProgressCandidates()
