@@ -9,7 +9,7 @@ import org.junit.Test
 
 class DownloadRequestsTest {
     private val api = NoveliaApi(null)
-    private val book = BookCard(BookRef("wenku", "series"), "测试文库")
+    private val book = BookCard(BookRef("wenku", "series"), "测试文库", authors = listOf("作者甲"), artists = listOf("画师乙"))
 
     @Test fun batchCreatesOneTaskPerDistinctVolumeWithSharedOptionsAndSourceBook() {
         val volumes = listOf("第1卷 空格.epub", "第2卷.txt", "第1卷 空格.epub")

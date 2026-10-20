@@ -63,6 +63,8 @@ class BookExportUiTest {
     private lateinit var snackbar: SnackbarHostState
     private val files = mutableListOf<File>()
     private val documents = mutableListOf<String>()
+    private val batchBook = BookCard(BookRef("wenku", "export-test"), "导出作品", authors = listOf("作者甲"), artists = listOf("画师乙"))
+    private val batchFolder = "[作者甲×画师乙] 导出作品"
 
     @Before fun prepare() = runBlocking {
         app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as NoveliaApplication
@@ -106,8 +108,8 @@ class BookExportUiTest {
         val target = finishExport(picker, "zip", 16_384)
         awaitMessage("压缩包已导出")
         ZipFile(target, Charsets.UTF_8).use { zip ->
-            assertEquals(payloads.keys.toList(), zip.entries().toList().map { it.name })
-            payloads.forEach { (name, bytes) -> assertArrayEquals(bytes, zip.getInputStream(zip.getEntry(name)).readBytes()) }
+            assertEquals(payloads.keys.map { "$batchFolder/$it" }, zip.entries().toList().map { it.name })
+            payloads.forEach { (name, bytes) -> assertArrayEquals(bytes, zip.getInputStream(zip.getEntry("$batchFolder/$name")).readBytes()) }
         }
     }
 
@@ -167,8 +169,8 @@ class BookExportUiTest {
                     archived[entry.name] = zip.readBytes()
                 }
             }
-            assertEquals(payloads.keys, archived.keys)
-            payloads.forEach { (name, bytes) -> assertArrayEquals(bytes, archived.getValue(name)) }
+            assertEquals(payloads.keys.map { "$batchFolder/$it" }.toSet(), archived.keys)
+            payloads.forEach { (name, bytes) -> assertArrayEquals(bytes, archived.getValue("$batchFolder/$name")) }
             assertTrue(multiple.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0)
             assertEquals(archiveUri, multiple.clipData!!.getItemAt(0).uri)
         } finally { instrumentation.removeMonitor(monitor) }
@@ -250,7 +252,7 @@ class BookExportUiTest {
             val id = UUID.randomUUID().toString()
             val file = File(app.store.downloadsDir, "$id-$name").apply { writeBytes(bytes) }
             files += file
-            DownloadEntry(id, name, file.name, "https://example.invalid", status = "已完成")
+            DownloadEntry(id, name, file.name, "https://example.invalid", status = "已完成", sourceBook = batchBook.ref, sourceCard = batchBook)
         } + DownloadEntry(UUID.randomUUID().toString(), "尚未完成", "unfinished.txt", "https://example.invalid", status = "已暂停")
         app.store.update { it.copy(downloads = entries) }
         return payloads

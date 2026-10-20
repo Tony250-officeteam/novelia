@@ -16,6 +16,20 @@ class WenkuMetadataTest {
         volumeZh = (1..3).map { "第 $it 卷.txt" },
     )
 
+    @Test fun illustratorMetadataSurvivesDownloadPersistenceAndPartialBookRefreshes() {
+        val card = detail.copy(authors = listOf("作者甲"), artists = listOf("画师乙")).card(ref)
+        assertEquals(listOf("画师乙"), card.artists)
+        val entry = DownloadEntry("download", "第一卷", "download.txt", "https://example.invalid",
+            sourceBook = ref, sourceCard = card)
+        val restored = appJson.decodeFromString<DownloadEntry>(appJson.encodeToString(entry))
+        assertEquals(card, restored.sourceCard)
+        val old = appJson.decodeFromString<BookCard>("""{"ref":{"provider":"wenku","id":"three-volumes"},"title":"三卷作品"}""")
+        assertNull(old.artists)
+        assertEquals(listOf("画师乙"), old.withKnownUpdateTime(card).artists)
+        assertTrue(detail.card(ref).withKnownUpdateTime(card).artists!!.isEmpty())
+        assertNull(old.copy(ref = BookRef("wenku", "another")).withKnownUpdateTime(card).artists)
+    }
+
     @Test fun bilingualFilesDoNotDoubleThePublishedVolumeCount() {
         val book = detail.card(ref)
         assertEquals(3, book.publishedVolumeCount)

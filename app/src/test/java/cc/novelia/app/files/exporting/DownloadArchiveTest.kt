@@ -1,6 +1,8 @@
 package cc.novelia.app.files.exporting
 
 import cc.novelia.app.data.model.DownloadEntry
+import cc.novelia.app.data.model.BookCard
+import cc.novelia.app.data.model.BookRef
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
@@ -21,7 +23,13 @@ class DownloadArchiveTest {
     @Test fun archivesPreserveOriginalBytesChineseNamesAndDuplicateFiles() = runBlocking {
         val downloads = temporary.newFolder()
         val exports = temporary.newFolder()
-        val entries = listOf(entry("one", "第一卷.txt"), entry("two", "第一卷.txt"), entry("three", "作品.epub"))
+        val book = BookCard(BookRef("wenku", "series"), "星之旅", authors = listOf("作者甲"), artists = listOf("画师乙"))
+        val other = BookCard(BookRef("syosetu", "other"), "另一作品", authors = listOf("作者丙"))
+        val entries = listOf(
+            entry("one", "第一卷.txt").copy(sourceBook = book.ref, sourceCard = book),
+            entry("two", "第一卷.txt").copy(sourceBook = book.ref, sourceCard = book),
+            entry("three", "作品.epub").copy(sourceBook = other.ref, sourceCard = other),
+        )
         val contents = listOf(byteArrayOf(-1, -2, 0, 65), "另一个同名文件".toByteArray(), ByteArray(150_000) { (it % 256).toByte() })
         entries.zip(contents).forEach { (entry, bytes) -> File(downloads, entry.fileName).writeBytes(bytes) }
         val archive = DownloadArchiveFiles(exports)
@@ -30,10 +38,20 @@ class DownloadArchiveTest {
         DownloadArchiveFiles(exports).finish(id, { target.outputStream() })
         ZipFile(target, Charsets.UTF_8).use { zip ->
             val actual = zip.entries().toList()
-            assertEquals(listOf("第一卷.txt", "第一卷（2）.txt", "作品.epub"), actual.map { it.name })
+            assertEquals(listOf("[作者甲×画师乙] 星之旅/第一卷.txt", "[作者甲×画师乙] 星之旅/第一卷（2）.txt", "[作者丙] 另一作品/作品.epub"), actual.map { it.name })
             actual.zip(contents).forEach { (entry, bytes) -> assertArrayEquals(bytes, zip.getInputStream(entry).readBytes()) }
         }
         assertEquals(0, exports.listFiles()!!.size)
+        val shared = archive.share(archive.create(downloads, entries))
+        ZipFile(shared, Charsets.UTF_8).use { zip ->
+            ZipFile(target, Charsets.UTF_8).use { exported ->
+                assertEquals(exported.entries().toList().map { it.name }, zip.entries().toList().map { it.name })
+                zip.entries().toList().zip(contents).forEach { (entry, bytes) ->
+                    assertArrayEquals(bytes, zip.getInputStream(entry).readBytes())
+                }
+            }
+        }
+        assertEquals(entries.map { it.fileName }.toSet(), downloads.listFiles()!!.map { it.name }.toSet())
         entries.zip(contents).forEach { (entry, bytes) -> assertArrayEquals(bytes, File(downloads, entry.fileName).readBytes()) }
     }
 

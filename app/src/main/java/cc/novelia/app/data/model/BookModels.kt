@@ -37,5 +37,7 @@ import kotlinx.serialization.Serializable
     val totalCharacters: Long? = null,
     // 出版目录的卷数；文库的 total / volumeIds 仍记录上传文件，不能用于显示出版卷数。
     // null 表示列表摘要或旧收藏尚未取得出版目录，不能从中日文文件数推算。
-    val publishedVolumeCount: Int? = null
+    val publishedVolumeCount: Int? = null,
+    // null 表示旧摘要尚未取得插画师；空列表表示详情明确没有插画师。
+    val artists: List<String>? = null
 )

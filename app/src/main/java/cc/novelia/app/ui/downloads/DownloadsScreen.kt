@@ -55,6 +55,8 @@ import kotlinx.coroutines.withContext
 import cc.novelia.app.files.downloads.DownloadFiles
 import cc.novelia.app.files.downloads.deleteBookFiles
 import cc.novelia.app.files.exporting.DownloadArchiveFiles
+import cc.novelia.app.files.exporting.downloadArchiveBooks
+import cc.novelia.app.data.storage.hashName
 import cc.novelia.app.files.exporting.bookFileMimeType
 import cc.novelia.app.files.importing.importDownloadedDocument
 
@@ -160,7 +162,17 @@ import cc.novelia.app.files.importing.importDownloadedDocument
             var sharedFile: File? = null
             var launched = false
             try {
-                val id = archives.create(c.store.downloadsDir, entries) { entry ->
+                val binding = c.app.session.capture()
+                val savedBooks = c.store.state.value.books.map { it.book }
+                val books = withContext(Dispatchers.IO) {
+                    downloadArchiveBooks(entries, savedBooks) { ref ->
+                        coroutineContext.ensureActive()
+                        val path = if(ref.isWenku) "wenku/${ref.id}" else "novel/${ref.key}"
+                        c.app.metadataCache.read(hashName("${binding.cacheAccount}:$path"))
+                    }
+                }
+                c.app.session.ensureCurrent(binding)
+                val id = archives.create(c.store.downloadsDir, entries, books) { entry ->
                     c.store.state.value.downloads.any { it.id == entry.id && it.fileName == entry.fileName && it.status == "已完成" }
                 }
                 stagedId = id

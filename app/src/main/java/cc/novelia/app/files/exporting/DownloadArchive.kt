@@ -1,6 +1,7 @@
 package cc.novelia.app.files.exporting
 
 import cc.novelia.app.data.model.DownloadEntry
+import cc.novelia.app.data.model.BookCard
 import java.io.File
 import java.io.OutputStream
 import java.util.UUID
@@ -15,12 +16,14 @@ import cc.novelia.app.files.downloads.DownloadFiles
 /** 流式打包原始下载文件；每个文件的读取与任务删除、成品发布共用任务锁。 */
 internal suspend fun writeDownloadArchive(
     directory: File, entries: List<DownloadEntry>, destination: OutputStream,
+    books: List<BookCard> = emptyList(),
     isCurrent: (DownloadEntry) -> Boolean = { true }, checkCancelled: () -> Unit = {},
 ) {
     require(entries.isNotEmpty() && entries.all { it.status == "已完成" } && entries.map { it.id }.distinct().size == entries.size) {
         "请选择已完成的下载文件"
     }
-    val names = mutableSetOf<String>()
+    checkCancelled()
+    val paths = downloadArchivePaths(entries, books)
     ZipOutputStream(destination, Charsets.UTF_8).use { zip ->
         zip.setLevel(Deflater.BEST_SPEED)
         val buffer = ByteArray(65536)
@@ -32,15 +35,7 @@ internal suspend fun writeDownloadArchive(
                 require(file.name == entry.fileName && file.canonicalFile.parentFile == directory.canonicalFile && file.isFile) {
                     "下载文件已不存在，请重新下载：${entry.title}"
                 }
-                val label = entry.fileName.removePrefix("${entry.id}-").replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), "_")
-                    .trim(' ', '.').ifBlank { "下载文件" }
-                val dot = label.lastIndexOf('.').takeIf { it > 0 } ?: label.length
-                val stem = label.take(dot)
-                val extension = label.substring(dot)
-                var name = label
-                var duplicate = 2
-                while(!names.add(name.lowercase(java.util.Locale.ROOT))) { name = "$stem（${duplicate++}）$extension" }
-                zip.putNextEntry(ZipEntry(name).apply { time = file.lastModified() })
+                zip.putNextEntry(ZipEntry(paths.getValue(entry.id)).apply { time = file.lastModified() })
                 file.inputStream().use { input ->
                     while(true) {
                         checkCancelled()
@@ -64,11 +59,12 @@ internal class DownloadArchiveFiles(private val directory: File) {
         return File(directory, "download-${if(sharing) "share" else "export"}-$id.zip")
     }
 
-    suspend fun create(downloads: File, entries: List<DownloadEntry>, isCurrent: (DownloadEntry) -> Boolean = { true }): String = withContext(Dispatchers.IO) {
+    suspend fun create(downloads: File, entries: List<DownloadEntry>, books: List<BookCard> = emptyList(),
+        isCurrent: (DownloadEntry) -> Boolean = { true }): String = withContext(Dispatchers.IO) {
         val id = UUID.randomUUID().toString()
         val target = file(id)
         try {
-            target.outputStream().buffered().use { output -> writeDownloadArchive(downloads, entries, output, isCurrent) { coroutineContext.ensureActive() } }
+            target.outputStream().buffered().use { output -> writeDownloadArchive(downloads, entries, output, books, isCurrent) { coroutineContext.ensureActive() } }
             id
         } catch(error: Exception) { target.delete(); throw error }
     }
