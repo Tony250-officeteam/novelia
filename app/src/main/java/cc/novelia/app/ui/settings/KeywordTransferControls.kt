@@ -3,6 +3,10 @@ package cc.novelia.app.ui.settings
 import cc.novelia.app.ui.components.base.AppTextButton
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import cc.novelia.app.ui.components.documents.FilteredDocumentPicker
+import cc.novelia.app.ui.components.documents.DocumentPickerFallback
+import cc.novelia.app.ui.components.documents.DocumentPickerTypes
+import cc.novelia.app.ui.components.documents.rememberOpenDocumentPicker
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.FileOpen
@@ -20,7 +24,7 @@ import cc.novelia.app.ui.navigation.AppController
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-internal data class KeywordTransferState(val busy: Boolean, val error: String?, val export: () -> Unit, val importLibrary: () -> Unit)
+internal data class KeywordTransferState(val busy: Boolean, val error: String?, val export: () -> Unit, val importLibrary: () -> Unit, val picker: FilteredDocumentPicker)
 
 // 文件选择器和已校验的导入状态持续存在，不随设置行滚出屏幕而销毁。
 @Composable internal fun rememberKeywordTransfer(c: AppController): KeywordTransferState {
@@ -42,7 +46,7 @@ internal data class KeywordTransferState(val busy: Boolean, val error: String?, 
             finally { busy = false }
         }
     }
-    val selectLibrary = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    val selectLibrary = rememberOpenDocumentPicker(DocumentPickerTypes.Json) { uri ->
         if(uri != null) c.action {
             busy = true; error = null
             try {
@@ -78,13 +82,14 @@ internal data class KeywordTransferState(val busy: Boolean, val error: String?, 
     }
     return KeywordTransferState(busy, error.takeIf { pending == null },
         { if(!busy) export.launch("novelia-keywords-${java.time.LocalDate.now()}.json") },
-        { if(!busy) selectLibrary.launch(arrayOf("application/json", "text/plain", "*/*")) })
+        { if(!busy) selectLibrary.launch() }, selectLibrary)
 }
 
 @Composable internal fun KeywordTransferControls(state: KeywordTransferState) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         ProfileMenuRow("导出标签库", "标签原文、中文译名和自定义分类", Icons.Outlined.IosShare, state.export)
         ProfileMenuRow("导入标签库", "保留本机已修改的译名和分类", Icons.Outlined.FileOpen, state.importLibrary)
+        DocumentPickerFallback(state.picker, enabled = !state.busy)
         if(state.busy) Text("正在处理标签库…", Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.primary)
         state.error?.let { Text(it, Modifier.padding(horizontal = 20.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.error) }
     }

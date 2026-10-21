@@ -10,6 +10,7 @@
 | --- | --- |
 | URI 暂存、来源去重、导入提交 | [DownloadImport.kt](../../app/src/main/java/cc/novelia/app/files/importing/DownloadImport.kt) |
 | 多文件批次 | [DocumentImportBatch.kt](../../app/src/main/java/cc/novelia/app/files/importing/DocumentImportBatch.kt) |
+| 系统文件选择与备用入口 | [FilteredDocumentPicker.kt](../../app/src/main/java/cc/novelia/app/ui/components/documents/FilteredDocumentPicker.kt)、[DocumentPickerTypes.kt](../../app/src/main/java/cc/novelia/app/ui/components/documents/DocumentPickerTypes.kt) |
 | 格式分派与文本工具 | [DocumentTools.kt](../../app/src/main/java/cc/novelia/app/files/DocumentTools.kt) |
 | 磁盘 EPUB 解析与对照识别 | [EpubReader.kt](../../app/src/main/java/cc/novelia/app/files/epub/EpubReader.kt)、[EpubChapter.kt](../../app/src/main/java/cc/novelia/app/files/epub/EpubChapter.kt) |
 | 下载任务与文件锁 | [DownloadWorker.kt](../../app/src/main/java/cc/novelia/app/files/DownloadWorker.kt)、[DownloadFiles.kt](../../app/src/main/java/cc/novelia/app/files/downloads/DownloadFiles.kt) |
@@ -17,6 +18,22 @@
 | 下载与工具页面 | [ui/downloads](../../app/src/main/java/cc/novelia/app/ui/downloads)、[ui/tools](../../app/src/main/java/cc/novelia/app/ui/tools) |
 
 ## 导入流程
+
+系统文件选择器按各入口可处理的 MIME 类型筛选：
+
+筛选约束的是文件能否被选择。具体显示方式由系统文件选择器和文件提供方决定：不支持的文件可能被隐藏，也可能保留在列表中但置灰、不可选；文件夹仍可进入。MuMu Android 15 的系统选择器实测采用置灰方式，因此列表中仍能看到其他格式不代表筛选未生效。
+
+| 入口 | 默认格式 |
+| --- | --- |
+| 书架顶部、本地文件空页面 | EPUB、TXT、SRT，支持多选 |
+| 阅读字体 | TTF、OTF、TTC，支持多选 |
+| 阅读资料备份 | ZIP |
+| 普通设置（含阅读偏好）、标签库、术语表 | JSON |
+| 文库分卷上传 | EPUB、TXT |
+| EPUB 转 TXT、EPUB 图片压缩 | EPUB |
+| 文本换行整理、片假名统计 | 文本文件，包括 SRT、JSON、XML |
+
+未选中文件返回后，原页面会显示可关闭的“找不到文件？”提示，点击“显示所有文件”可重新打开不限制类型的选择器，兼容文件类型标记不准确的文件提供方。备用入口仅对本次选择生效，后续普通导入仍默认筛选；文件选中后继续由原有流程校验格式和内容。字体筛选兼容新旧字体类型名称；普通导入不放行通用二进制类型，JSON 和 ZIP 也不混入“所有文件”通配符。
 
 系统文档选择器返回 URI，不保证有真实路径。导入通过 ContentResolver 流式复制到私有暂存，检查实际大小，再计算原文件 SHA-256：
 

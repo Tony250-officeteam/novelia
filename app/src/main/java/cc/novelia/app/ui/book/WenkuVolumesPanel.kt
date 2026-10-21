@@ -45,7 +45,7 @@ import cc.novelia.app.ui.theme.appReducedMotion
 
 @Composable internal fun WenkuVolumesPanel(
     c: AppController, book: BookCard, detail: WenkuDetail, uploadBusy: Boolean,
-    onUpload: () -> Unit, onRefresh: () -> Unit,
+    onUpload: () -> Unit, onRefresh: () -> Unit, pickerFallback: @Composable () -> Unit = {},
 ) {
     val profile by c.session.profile.collectAsStateWithLifecycle()
     val library by c.store.state.collectAsStateWithLifecycle()
@@ -75,6 +75,7 @@ import cc.novelia.app.ui.theme.appReducedMotion
     LaunchedEffect(available) { selection = selection.filter { it in available } }
     BackHandler(selecting) { selecting = false; selection = emptyList() }
     Column {
+        pickerFallback()
         if(detail.volumeJp.isNotEmpty()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("已有译文的分卷", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)

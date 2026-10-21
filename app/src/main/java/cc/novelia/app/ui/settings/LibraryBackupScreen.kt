@@ -19,6 +19,9 @@ import cc.novelia.app.ui.account.ProfileDetailList
 import cc.novelia.app.ui.account.ProfileToggle
 import cc.novelia.app.ui.account.ProfileSectionTitle
 import cc.novelia.app.ui.components.base.ConfirmDialog
+import cc.novelia.app.ui.components.documents.DocumentPickerFallback
+import cc.novelia.app.ui.components.documents.DocumentPickerTypes
+import cc.novelia.app.ui.components.documents.rememberOpenDocumentPicker
 import cc.novelia.app.ui.account.ProfileDetailScreen
 import cc.novelia.app.ui.components.base.friendlyMessage
 import cc.novelia.app.ui.markdown.format
@@ -58,7 +61,7 @@ import kotlinx.coroutines.withContext
             finally { busy = false }
         }
     }
-    val selectBackup = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    val selectBackup = rememberOpenDocumentPicker(DocumentPickerTypes.Backup) { uri ->
         if (uri != null) c.action {
             busy = true; error = null
             try {
@@ -94,7 +97,8 @@ import kotlinx.coroutines.withContext
             item { ProfileDetailCard {
                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("选择备份后先检查内容，再确认合并。", style = MaterialTheme.typography.bodyMedium)
-                    AppOutlinedButton(onClick = { selectBackup.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) }, enabled = !busy) { Text("选择备份并检查") }
+                    DocumentPickerFallback(selectBackup, enabled = !busy)
+                    AppOutlinedButton(onClick = { selectBackup.launch() }, enabled = !busy) { Text("选择备份并检查") }
                 }
             } }
             if (busy) item { Text("正在处理资料，请稍候…", color = MaterialTheme.colorScheme.primary) }

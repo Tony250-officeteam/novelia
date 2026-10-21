@@ -2,8 +2,9 @@ package cc.novelia.app.ui.reader
 
 import android.graphics.Typeface
 import android.content.Context
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import cc.novelia.app.ui.components.documents.DocumentPickerFallback
+import cc.novelia.app.ui.components.documents.DocumentPickerTypes
+import cc.novelia.app.ui.components.documents.rememberOpenMultipleDocumentsPicker
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.*
@@ -153,7 +154,7 @@ internal data class ReaderFontFace(val typeface: Typeface, val available: Boolea
         finally { loadingLibrary = false }
     }
     val font = rememberReaderFont(settings, context)
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+    val picker = rememberOpenMultipleDocumentsPicker(DocumentPickerTypes.Fonts) { uris ->
         if(uris.isNotEmpty()) scope.launch {
             importing = true
             feedback = null
@@ -235,12 +236,13 @@ internal data class ReaderFontFace(val typeface: Typeface, val available: Boolea
         }
         if(loadingLibrary) Text("正在读取已导入字体…", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
         if(!font.available) Text("字体在本机不可用，暂用系统字体。请重新导入。", color = colors.error, style = MaterialTheme.typography.bodySmall)
-        AppOutlinedButton(onClick = { picker.launch(arrayOf("*/*")) }, enabled = !importing && !deleting,
+        AppOutlinedButton(onClick = { picker.launch() }, enabled = !importing && !deleting,
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("reader-font-import"), shape = MaterialTheme.shapes.medium) {
             Icon(Icons.Outlined.FileUpload, null, Modifier.size(20.dp))
             Spacer(Modifier.width(8.dp))
             Text(if(importing) "正在导入 $importProgress…" else "导入字体文件")
         }
+        DocumentPickerFallback(picker, enabled = !importing && !deleting)
         Text("支持多选 · TTF / OTF / TTC · 单个最大 64 MB\n已导入字体保留在本机，可随时切换；不随备份或同步传输。",
             style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
         feedback?.let { Text(it, style = MaterialTheme.typography.bodySmall) }

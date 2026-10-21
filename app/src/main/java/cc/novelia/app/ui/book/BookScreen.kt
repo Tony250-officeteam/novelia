@@ -4,8 +4,9 @@ package cc.novelia.app.ui.book
 import cc.novelia.app.ui.components.base.AppButton
 import cc.novelia.app.ui.components.base.AppTextButton
 import cc.novelia.app.ui.components.base.AppIconButton
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import cc.novelia.app.ui.components.documents.DocumentPickerFallback
+import cc.novelia.app.ui.components.documents.DocumentPickerTypes
+import cc.novelia.app.ui.components.documents.rememberOpenDocumentPicker
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
@@ -85,7 +86,7 @@ import kotlinx.coroutines.withContext
     LaunchedEffect(ref, profile?.username) { favorite = null }
     var progressChoice by remember { mutableStateOf<Pair<ReadingDestination, ReadingDestination>?>(null) }
     var uploadBusy by remember { mutableStateOf(false) }
-    val uploader = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { c.action("分卷上传完成") { uploadBusy = true; try { withContext(Dispatchers.IO) { val (name, bytes) = readDocument(c, it); require(name.substringAfterLast('.').lowercase() in listOf("epub", "txt") && bytes.size <= 40 * 1024 * 1024) { "文库上传支持不超过 40 MB 的 EPUB / TXT" }; val file = File(c.app.cacheDir, "upload-${System.nanoTime()}"); try { file.writeBytes(bytes); c.api.uploadVolume(ref, name, file) } finally { file.delete() } }; version++ } finally { uploadBusy = false } } } }
+    val uploader = rememberOpenDocumentPicker(DocumentPickerTypes.Volumes) { uri -> uri?.let { c.action("分卷上传完成") { uploadBusy = true; try { withContext(Dispatchers.IO) { val (name, bytes) = readDocument(c, it); require(name.substringAfterLast('.').lowercase() in listOf("epub", "txt") && bytes.size <= 40 * 1024 * 1024) { "文库上传支持不超过 40 MB 的 EPUB / TXT" }; val file = File(c.app.cacheDir, "upload-${System.nanoTime()}"); try { file.writeBytes(bytes); c.api.uploadVolume(ref, name, file) } finally { file.delete() } }; version++ } finally { uploadBusy = false } } } }
     Screen(if(ref.isWenku) "文库详情" else "作品详情", onBack, actions = {
         AppIconButton(onClick = { c.share(ref.url) }) { Icon(Icons.Outlined.Share, "分享作品") }
         Box { AppIconButton(onClick = { menu = true }) { Icon(Icons.Outlined.MoreVert, "更多操作") }; AppDropdownMenu(menu, { menu = false }) {
@@ -123,7 +124,8 @@ import kotlinx.coroutines.withContext
                             if(detail.webIds.isNotEmpty()) item { SectionTitle("关联网络版"); detail.webIds.forEach { id -> AppTextButton(onClick = { c.book(BookRef.fromKey(id)) }, Modifier.padding(horizontal = 12.dp)) { Text(id) } } }
                         }
                         1 -> WenkuVolumesPanel(c, book, detail, uploadBusy,
-                            onUpload = { uploader.launch(arrayOf("*/*")) }, onRefresh = refresh)
+                            onUpload = uploader.launch, onRefresh = refresh,
+                            pickerFallback = { DocumentPickerFallback(uploader, enabled = !uploadBusy) })
                         2 -> NovelCommentsPanel(c, "wenku-${ref.id}")
                     }
             }

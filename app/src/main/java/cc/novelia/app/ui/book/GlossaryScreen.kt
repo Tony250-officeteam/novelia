@@ -7,6 +7,9 @@ import cc.novelia.app.ui.components.base.AppTextButton
 import cc.novelia.app.ui.components.base.AppIconButton
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import cc.novelia.app.ui.components.documents.DocumentPickerFallback
+import cc.novelia.app.ui.components.documents.DocumentPickerTypes
+import cc.novelia.app.ui.components.documents.rememberOpenDocumentPicker
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -46,7 +49,7 @@ import kotlinx.serialization.encodeToString
     val canEdit = ref.isLocal || profile?.canEdit == true
     val settledQuery = rememberDebouncedQuery(query)
     val entries = remember(data, settledQuery) { data.orEmpty().entries.filter { it.key.contains(settledQuery, true) || it.value.contains(settledQuery, true) } }
-    val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { c.action("术语表已载入，请检查后保存") { val (_, bytes) = withContext(Dispatchers.IO) { readDocument(c, it) }; val parsed = appJson.decodeFromString<Map<String, String>>(bytes.toString(Charsets.UTF_8)); require(parsed.size <= 5000 && parsed.keys.none(String::isBlank)); data = data.orEmpty() + parsed } } }
+    val importer = rememberOpenDocumentPicker(DocumentPickerTypes.Json) { uri -> uri?.let { c.action("术语表已载入，请检查后保存") { val (_, bytes) = withContext(Dispatchers.IO) { readDocument(c, it) }; val parsed = appJson.decodeFromString<Map<String, String>>(bytes.toString(Charsets.UTF_8)); require(parsed.size <= 5000 && parsed.keys.none(String::isBlank)); data = data.orEmpty() + parsed } } }
     val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         val id = pendingExportId
         pendingExportId = null
@@ -89,10 +92,11 @@ import kotlinx.serialization.encodeToString
         }, enabled = data != null && !preparingExport && pendingExportId == null) {
             Icon(Icons.Outlined.IosShare, if(preparingExport) "正在准备导出" else if(pendingExportId != null) "等待选择导出位置" else "导出 JSON")
         }
-        if(canEdit) { AppIconButton(onClick = { importer.launch(arrayOf("application/json", "text/plain", "*/*")) }) { Icon(Icons.Outlined.FileOpen, "导入 JSON") }; AppIconButton(onClick = { add = true }) { Icon(Icons.Outlined.Add, "添加词条") } }
+        if(canEdit) { AppIconButton(onClick = { importer.launch() }) { Icon(Icons.Outlined.FileOpen, "导入 JSON") }; AppIconButton(onClick = { add = true }) { Icon(Icons.Outlined.Add, "添加词条") } }
     }) { padding -> AsyncContent(ref.key, load = { if(ref.isLocal) c.store.state.value.personalGlossaries[ref.key].orEmpty() else if(ref.isWenku) c.api.get<WenkuDetail>("wenku/${ref.id}").glossary else c.api.get<WebDetail>("novel/${ref.key}").glossary }, modifier = Modifier.padding(padding)) { glossary, _ ->
         LaunchedEffect(glossary) { if(data == null) { data = glossary; original = glossary } }
         Column {
+            if(canEdit) DocumentPickerFallback(importer, enabled = !saving)
             OutlinedTextField(query, { query = it }, label = { Text("查找原文或译名") }, modifier = Modifier.fillMaxWidth().padding(20.dp), singleLine = true)
             AppLazyColumn(Modifier.weight(1f)) {
                 if(entries.isEmpty()) item { EmptyState("暂时没有匹配词条", "术语表用于统一作品中的人名和专有名词。", Icons.Outlined.Translate) }

@@ -8,7 +8,6 @@ import cc.novelia.app.ui.components.base.AppFilledTonalButton
 import cc.novelia.app.ui.components.base.AppIconButton
 import cc.novelia.app.data.updates.withAcknowledgedBookUpdates
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -66,6 +65,9 @@ import cc.novelia.app.ui.components.book.bookRowStatus
 import cc.novelia.app.ui.components.base.ChoiceRow
 import cc.novelia.app.ui.components.base.ConfirmDialog
 import cc.novelia.app.ui.components.documents.CreateBookDocument
+import cc.novelia.app.ui.components.documents.DocumentPickerFallback
+import cc.novelia.app.ui.components.documents.DocumentPickerTypes
+import cc.novelia.app.ui.components.documents.rememberOpenMultipleDocumentsPicker
 import cc.novelia.app.files.exporting.prepareLocalBookExport
 import cc.novelia.app.files.exporting.exportLocalBook
 import cc.novelia.app.files.downloads.deleteBookFiles
@@ -121,8 +123,11 @@ import kotlinx.coroutines.withContext
     val importState by importModel.state.collectAsStateWithLifecycle()
     val importing = importState.running
     LaunchedEffect(importState.bookKeys) { importedKeys = importState.bookKeys }
-    val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+    val importer = rememberOpenMultipleDocumentsPicker(DocumentPickerTypes.Books) { uris ->
         importModel.start(uris)
+    }
+    val importLocalFiles = {
+        if(!importing) importer.launch()
     }
     val recent = remember(state.books, state.positions) {
         state.books.asSequence().filter { state.positions.containsKey(it.book.ref.key) }.maxByOrNull { state.positions.getValue(it.book.ref.key).updatedAt }
@@ -150,10 +155,13 @@ import kotlinx.coroutines.withContext
         AppIconButton(onClick = { c.go("updates") }) { Icon(Icons.Outlined.NewReleases, "查看书架更新") }
         AppIconButton(onClick = { UpdateWorker.checkNow(c.app); c.message("已开始检查书架更新") }) { Icon(Icons.Outlined.Sync, "检查更新") }
         AppIconButton(onClick = { c.go("history") }) { Icon(Icons.Outlined.History, "阅读历史") }
-        AppIconButton(onClick = { importer.launch(arrayOf("*/*")) }, enabled = !importing) { Icon(Icons.Outlined.FileOpen, "导入本地文件") }
+        AppIconButton(onClick = importLocalFiles, enabled = !importing) { Icon(Icons.Outlined.FileOpen, "导入本地文件") }
     }) { padding ->
         ShelfPager(tab, { tab = it }, enabled = !batchWorking, modifier = Modifier.padding(padding),
-            controls = { DocumentImportPanel(importModel, c::book) }) { page ->
+            controls = {
+                DocumentPickerFallback(importer, enabled = !importing)
+                DocumentImportPanel(importModel, c::book)
+            }) { page ->
             val active = page == tab
             if(page == 2) CloudShelf(c, onOpenBook, selectedBookKey, active = active) else {
                 // 邻页预组合时按自己的分区生成列表，不能复用当前选中页的数据或修剪其批量选择。
@@ -273,7 +281,7 @@ import kotlinx.coroutines.withContext
                             if(books.isEmpty()) item {
                                 if(query.isNotBlank() || folder != "全部" || readingStatus != "全部" || (if(page == 0) bookType else fileType) != ShelfBookType.All)
                                     EmptyState("没有符合条件的小说", if(filterCharacters) "可以放宽字数范围、包含未知作品或继续补全字数。" else "试试其他书名、作者、类型或阅读状态。", action = "清除筛选", onAction = { query = ""; folder = "全部"; readingStatus = "全部"; bookType = ShelfBookType.All; fileType = ShelfBookType.All; characterFilter = CharacterCountFilter() })
-                                else EmptyState(if(page == 1) "把故事装进口袋" else "书架等你来填满", if(page == 1) "支持 EPUB、TXT 和 SRT，导入后即可离线阅读。" else "去发现喜欢的小说，或导入你已有的文件。", action = if(page == 1) "导入文件" else "去发现", onAction = { if(page == 1) importer.launch(arrayOf("*/*")) else c.go("discover") }, sticker = MidoriSticker.Welcome)
+                                else EmptyState(if(page == 1) "把故事装进口袋" else "书架等你来填满", if(page == 1) "支持 EPUB、TXT 和 SRT，导入后即可离线阅读。" else "去发现喜欢的小说，或导入你已有的文件。", action = if(page == 1) "导入文件" else "去发现", onAction = { if(page == 1) importLocalFiles() else c.go("discover") }, sticker = MidoriSticker.Welcome)
                             }
                             items(reorder.rows, key = { it.saved.book.ref.key }, contentType = { if(it.parent == null) "book" else "volume" }) { row ->
                                 val saved = row.saved
