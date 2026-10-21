@@ -1,0 +1,141 @@
+package cc.novelia.app.ui.shelf
+
+import android.content.ClipData
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.core.content.FileProvider
+import androidx.test.core.app.ActivityScenario
+import androidx.test.platform.app.InstrumentationRegistry
+import cc.novelia.app.MainActivity
+import cc.novelia.app.NoveliaApplication
+import cc.novelia.app.files.importing.documentImportLock
+import java.io.File
+import java.util.UUID
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
+import kotlinx.coroutines.runBlocking
+import org.junit.After
+import org.junit.Assert.*
+import org.junit.Before
+import org.junit.Rule
+import org.junit.Test
+
+/** 仅创建、清理本次测试的文件和书籍；分享通过真实 Activity 分发和 ContentResolver 导入。 */
+class SharedDocumentImportTest {
+    @get:Rule val compose = createEmptyComposeRule()
+    private val app get() = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as NoveliaApplication
+    private val prefix = "分享测试-${UUID.randomUUID()}"
+    private val files = mutableListOf<File>()
+
+    @Before fun ready() = runBlocking { app.initialization.await(); Unit }
+
+    @After fun cleanup() {
+        app.store.state.value.books.filter { it.book.title.startsWith(prefix) }.forEach { app.store.removeDocument(it.book.ref.id) }
+        files.forEach { it.delete() }
+    }
+
+    @Test fun coldShareImportsTextAndRecreationDoesNotReplayIt() {
+        val uri = fixture("txt", "第一章 开始\n这是系统分享导入的正文。$prefix")
+        val intent = share(listOf(uri), "text/plain").putExtra(Intent.EXTRA_TEXT, "不应当搜索此文件说明")
+        ActivityScenario.launch<MainActivity>(intent).use { scenario ->
+            awaitBooks(1)
+            compose.onNodeWithTag("import-results").performClick()
+            compose.onNodeWithText("成功 · 已加入书架").assertExists()
+            // 在结果面板打开时重建，导入清单和已完成状态必须继续保留。
+            scenario.recreate()
+            compose.onNodeWithText("成功 · 已加入书架").assertExists()
+            compose.onNodeWithText("开始阅读").performClick()
+            compose.waitUntil(10_000) { compose.onAllNodesWithText("这是系统分享导入的正文。$prefix", substring = true).fetchSemanticsNodes().isNotEmpty() }
+            assertEquals(1, importedCount())
+        }
+    }
+
+    @Test fun warmClipShareImportsBooksAndReportsUnsupportedFiles() {
+        val epub = epubFixture()
+        val srt = fixture("srt", "1\n00:00:01,000 --> 00:00:02,000\n字幕正文 $prefix")
+        val bad = fixture("pdf", "不支持的文件 $prefix")
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            lateinit var launchIntent: Intent
+            scenario.onActivity { launchIntent = Intent(it.intent) }
+            try {
+                compose.waitUntil(10_000) { compose.onAllNodesWithText("我的", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+                compose.onNodeWithText("我的").performClick()
+                val intent = share(listOf(epub, srt, bad), "application/octet-stream", clipOnly = true).apply {
+                    // 从现有页面模拟 onNewIntent，不另建一个由分享 Intent 标识的任务。
+                    flags = flags and Intent.FLAG_ACTIVITY_NEW_TASK.inv()
+                }
+                scenario.onActivity { it.startActivity(intent) }
+                awaitBooks(2)
+                scenario.onActivity { assertEquals(Intent.ACTION_SEND_MULTIPLE, it.intent.action) }
+                compose.onNodeWithTag("import-results").performClick()
+                compose.waitUntil(10_000) { compose.onAllNodesWithText("失败 · 支持 EPUB、TXT 和 SRT 文件").fetchSemanticsNodes().isNotEmpty() }
+                assertEquals(setOf("epub", "srt"), app.store.state.value.books.filter { it.book.title.startsWith(prefix) }
+                    .map { app.store.documentIndex(it.book.ref.id).format }.toSet())
+            } finally {
+                // ActivityScenario 用初始 Intent 匹配生命周期；setIntent 后需恢复身份才能观测关闭。
+                scenario.onActivity { it.intent = launchIntent }
+            }
+        }
+    }
+
+    @Test fun anotherShareWaitsForTheRunningBatchAndDuplicatesKeepOneBook() {
+        val first = fixture("txt", "第一本正文 $prefix", "first")
+        val second = fixture("txt", "第二本正文 $prefix", "second")
+        runBlocking { documentImportLock.lock() }
+        var locked = true
+        try {
+            ActivityScenario.launch<MainActivity>(share(listOf(first), "text/plain")).use { scenario ->
+                compose.waitUntil(10_000) { compose.onAllNodesWithText("正在导入 0/1 · 查看结果").fetchSemanticsNodes().isNotEmpty() }
+                scenario.onActivity { it.startActivity(share(listOf(second), "text/plain")) }
+                compose.waitForIdle()
+                scenario.recreate()
+                documentImportLock.unlock()
+                locked = false
+                awaitBooks(2)
+                scenario.onActivity { it.startActivity(share(listOf(first), "text/plain")) }
+                compose.onNodeWithTag("import-results").performClick()
+                compose.waitUntil(10_000) { compose.onAllNodesWithText("重复 · 书架中已有相同文件").fetchSemanticsNodes().isNotEmpty() }
+                assertEquals(2, importedCount())
+            }
+        } finally { if(locked) documentImportLock.unlock() }
+    }
+
+    private fun importedCount() = app.store.state.value.books.count { it.book.title.startsWith(prefix) }
+    private fun awaitBooks(count: Int) {
+        compose.waitUntil(20_000) { importedCount() == count }
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("正在导入", substring = true).fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithTag("import-results").assertExists()
+    }
+
+    private fun fixture(extension: String, text: String, suffix: String = extension): Uri {
+        val file = File(app.store.exportsDir, "$prefix-$suffix.$extension").apply { writeText(text, Charsets.UTF_8) }
+        files += file
+        return FileProvider.getUriForFile(app, "${app.packageName}.files", file)
+    }
+
+    private fun epubFixture(): Uri {
+        val file = File(app.store.exportsDir, "$prefix-epub.epub")
+        files += file
+        ZipOutputStream(file.outputStream()).use { zip ->
+            mapOf(
+                "META-INF/container.xml" to "<container><rootfile full-path='book.opf'/></container>",
+                "book.opf" to "<package><manifest><item id='c' href='chapter.xhtml'/></manifest><spine><itemref idref='c'/></spine></package>",
+                "chapter.xhtml" to "<html><body><p>EPUB 正文 $prefix</p></body></html>",
+            ).forEach { (name, contents) -> zip.putNextEntry(ZipEntry(name)); zip.write(contents.toByteArray()); zip.closeEntry() }
+        }
+        return FileProvider.getUriForFile(app, "${app.packageName}.files", file)
+    }
+
+    private fun share(uris: List<Uri>, type: String, clipOnly: Boolean = false) = Intent(app, MainActivity::class.java).apply {
+        action = if(uris.size == 1) Intent.ACTION_SEND else Intent.ACTION_SEND_MULTIPLE
+        this.type = type
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        clipData = ClipData.newRawUri("书籍", uris.first()).apply { uris.drop(1).forEach { addItem(ClipData.Item(it)) } }
+        if(!clipOnly) {
+            if(uris.size == 1) putExtra(Intent.EXTRA_STREAM, uris.first())
+            else putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
+        }
+    }
+}

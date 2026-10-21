@@ -56,16 +56,23 @@ private fun copyImport(input: InputStream, target: File, checkCancelled: () -> U
  * finally 清理本次输入暂存文件，不要求提供器返回可以直接访问的本地文件路径。
  */
 suspend fun importDocumentUri(store: LocalStore, uri: Uri, onProgress: (String) -> Unit = {}): DocumentImportResult = withContext(Dispatchers.IO) {
+    require(uri.scheme == "content") { "无法读取此文件，请从文件管理器重新分享或使用书架导入" }
     onProgress("正在读取文件")
     val resolver = store.context.contentResolver
-    val name = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use {
-        if (it.moveToFirst()) {
-            val sizeColumn = it.getColumnIndex(OpenableColumns.SIZE)
-            if (sizeColumn >= 0 && !it.isNull(sizeColumn)) it.getLong(sizeColumn).takeIf { size -> size >= 0 }?.let(DocumentTools::requireImportSize)
-            val nameColumn = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-            if (nameColumn >= 0) it.getString(nameColumn) else null
-        } else null
-    } ?: "导入文档.txt"
+    val metadata = try {
+        resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use {
+            if (it.moveToFirst()) {
+                val sizeColumn = it.getColumnIndex(OpenableColumns.SIZE)
+                val size = if(sizeColumn >= 0 && !it.isNull(sizeColumn)) it.getLong(sizeColumn) else null
+                val nameColumn = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                (if(nameColumn >= 0) it.getString(nameColumn) else null) to size
+            } else null
+        }
+    } catch(cancelled: CancellationException) { throw cancelled }
+    catch(_: Exception) { null }
+    metadata?.second?.takeIf { it >= 0 }?.let(DocumentTools::requireImportSize)
+    val mime = runCatching { resolver.getType(uri) }.getOrNull()
+    val name = documentImportName(metadata?.first, uri.lastPathSegment, mime)
     val staged = File.createTempFile("document-input-", ".tmp", store.context.cacheDir)
     try {
         val workContext = coroutineContext

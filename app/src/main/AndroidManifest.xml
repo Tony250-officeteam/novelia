@@ -21,7 +21,18 @@
                 <data android:pathPrefix="/wenku/" />
                 <data android:pathPrefix="/forum/" />
             </intent-filter>
-            <intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="text/plain" /></intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="application/epub+zip" />
+                <data android:mimeType="application/x-subrip" />
+                <data android:mimeType="application/srt" />
+                <data android:mimeType="text/srt" />
+                <!-- 部分文件管理器把电子书标为通用文件，导入时仍校验扩展名和内容。 -->
+                <data android:mimeType="application/octet-stream" />
+            </intent-filter>
             <intent-filter android:autoVerify="false">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" /><category android:name="android.intent.category.BROWSABLE" />

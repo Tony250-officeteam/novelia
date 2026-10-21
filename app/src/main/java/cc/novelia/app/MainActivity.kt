@@ -26,6 +26,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.*
 import cc.novelia.app.data.model.BookRef
 import cc.novelia.app.data.model.LibraryState
+import cc.novelia.app.files.importing.sharedDocumentUris
 import cc.novelia.app.launcher.observeLauncherSplashScreen
 import cc.novelia.app.ui.about.AboutScreen
 import cc.novelia.app.ui.about.OpenSourceLicensesScreen
@@ -77,6 +78,7 @@ import cc.novelia.app.ui.web.SiteWebScreen
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.delay
 import cc.novelia.app.startup.StartupScreen
@@ -88,11 +90,12 @@ private fun LibraryState.appearance() = AppAppearance(theme, amoledBlack, square
 
 /**
  * Android 生命周期与 Compose 界面的连接点：等待应用初始化，装配主题、控制器和导航图。
- * incoming 只保存尚未消费的外部链接；已完成的导航交给 NavController 恢复，避免旋转后重开书籍。
+ * 只保存尚未消费的外部链接和文件；已完成的导航和导入交给页面恢复，避免旋转后重放。
  * 根标签切换保存各自返回栈，详情页面则保留带不同参数的独立历史记录。
  */
 class MainActivity : ComponentActivity() {
     private val incoming = MutableStateFlow<String?>(null)
+    private val incomingDocuments = MutableStateFlow<List<Uri>>(emptyList())
     override fun onCreate(savedInstanceState: Bundle?) {
         val app = application as NoveliaApplication
         setTheme(app.startupAppearance.state.value.windowTheme)
@@ -101,7 +104,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         // 导航栈自行恢复，只重放尚未消费的外部意图。
         if (savedInstanceState == null) receive(intent)
-        else incoming.value = savedInstanceState.getString("novelia.pendingLink")
+        else {
+            incoming.value = savedInstanceState.getString("novelia.pendingLink")
+            incomingDocuments.value = savedInstanceState.getStringArrayList("novelia.pendingDocuments").orEmpty().map(Uri::parse)
+        }
         setContent {
             val startup by app.startup.progress.collectAsStateWithLifecycle()
             val initialized = startup.ready
@@ -115,6 +121,7 @@ class MainActivity : ComponentActivity() {
             val appearance by remember(app) { app.store.state.map { it.appearance() }.distinctUntilChanged() }
                 .collectAsStateWithLifecycle(initialValue = remember(app) { app.store.state.value.appearance() })
             val link by incoming.collectAsStateWithLifecycle()
+            val sharedDocuments by incomingDocuments.collectAsStateWithLifecycle()
             AppInteractionMode(appearance.eInk, appearance.reducedMotion) {
             NoveliaTheme(appearance.theme, squareCorners = appearance.squareCorners, amoledBlack = appearance.amoledBlack) {
                 val nav = rememberNavController(); val scope = rememberCoroutineScope(); val snackbar = remember { SnackbarHostState() }
@@ -141,6 +148,13 @@ class MainActivity : ComponentActivity() {
                     return@CompositionLocalProvider
                 }
                 LaunchedEffect(link) { link?.let { controller.openLink(it); incoming.value = null } }
+                LaunchedEffect(sharedDocuments) {
+                    if(sharedDocuments.isNotEmpty()) {
+                        // 冷启动时 LaunchedEffect 可能先于 NavHost 安装返回栈，等待首个页面就绪。
+                        nav.currentBackStackEntryFlow.first()
+                        nav.switchRootTab("shelf")
+                    }
+                }
                 LaunchedEffect(app) {
                     val binding = app.session.capture()
                     val token = app.session.tokenFor(binding)
@@ -156,7 +170,7 @@ class MainActivity : ComponentActivity() {
                     (appearance.bookStatusBars[readingKey] ?: appearance.hideStatusBar))
                 ObserveDownloadCelebrations(controller, route)
                 cc.novelia.app.ui.feedback.ObserveAppUpdates(controller, show = route?.startsWith("reader/") != true)
-                ObserveClipboardLinks(controller, externalLinkPending = link != null)
+                ObserveClipboardLinks(controller, externalLinkPending = link != null || sharedDocuments.isNotEmpty())
                 val roots = listOf("shelf", "discover?query={query}", "community", "profile")
                 fun switchTab(target: String) { nav.switchRootTab(target) }
                 var navigationBarHeight by remember { mutableStateOf(0.dp) }
@@ -205,7 +219,10 @@ class MainActivity : ComponentActivity() {
                                 RootDestinationLayout("shelf", ::switchTab, hideBottomNavigation = compactShelfDetail,
                                     onNavigationRailWidthChanged = reportNavigationRailWidth("shelf"),
                                     onNavigationBarHeightChanged = reportNavigationBarHeight("shelf")) {
-                                    AdaptiveLibraryScreen(controller, entry.savedStateHandle) { compactShelfDetail = it }
+                                    AdaptiveLibraryScreen(controller, entry.savedStateHandle,
+                                        sharedDocuments = sharedDocuments,
+                                        onSharedDocumentsConsumed = { consumed -> incomingDocuments.value = incomingDocuments.value - consumed.toSet() },
+                                        onCompactDetailChanged = { compactShelfDetail = it })
                                 }
                             }
                             composable("discover?query={query}") { entry ->
@@ -285,8 +302,17 @@ class MainActivity : ComponentActivity() {
     override fun onStop() { super.onStop(); (application as NoveliaApplication).persistState() }
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString("novelia.pendingLink", incoming.value)
+        outState.putStringArrayList("novelia.pendingDocuments", ArrayList(incomingDocuments.value.map(Uri::toString)))
         super.onSaveInstanceState(outState)
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); receive(intent) }
-    private fun receive(intent: Intent) { incoming.value = intent.dataString ?: intent.getStringExtra(Intent.EXTRA_TEXT) }
+    private fun receive(intent: Intent) {
+        val documents = intent.sharedDocumentUris()
+        if(documents.isNotEmpty()) {
+            incoming.value = null
+            incomingDocuments.value = (incomingDocuments.value + documents).distinct()
+        } else {
+            incoming.value = intent.dataString ?: intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
+        }
+    }
 }

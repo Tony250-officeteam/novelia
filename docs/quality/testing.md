@@ -46,7 +46,7 @@ Release 报告对应替换变体名。警告、失败和跳过分别记录。
 | WebDAV | `data.webdav.WebDavMergeTest`、`WebDavProjectionTest`、`WebDavExchangeTest`、`WebDavClientTest`（均在 data.webdav） |
 | 持久化和恢复 | `data.storage.StatePersistenceTest`、`data.storage.LibraryStateCodecTest`、`data.backup.LibraryBackupTest` |
 | 边缘工具栏偏好、同步与定位 | `ui.toolbar.EdgeToolbarSettingsTest`、`ui.toolbar.EdgeToolbarGeometryTest` |
-| 导入、下载、导出 | `files.FileImportRegressionTest`、`files.importing.DocumentImportBatchTest`、`files.downloads.DownloadFilesTest`、`files.exporting.PendingExportFilesTest` |
+| 导入、下载、导出 | `files.FileImportRegressionTest`、`files.importing.DocumentImportBatchTest`、`files.importing.DocumentImportNameTest`、`files.downloads.DownloadFilesTest`、`files.exporting.PendingExportFilesTest` |
 | 阅读投影、分页、定位 | `reader.ReaderProjectionTest`、`reader.ReaderExactSearchTest`、`reader.StaticPaginationTest`、`ui.reader.ReaderChapterLoadTest` |
 | 位置、历史、更新 | `data.library.ReadingProgressUpdatesTest`、`data.storage.LocalReadingProgressTest`、`data.updates.BookUpdateStateTest` |
 | 应用版本与下载 | `data.appupdate.AppReleaseTest`、`AppReleaseDownloadCoordinatorTest`、`AppUpdateSettingsTest`（均在 data.appupdate） |
@@ -77,6 +77,7 @@ $env:ANDROID_SERIAL = '<专用测试设备序列号>'
 - 会话：`NativeLoginSessionTest`、`MirrorSessionTest`、`ForumMirrorSessionTest`、`ForumSessionIsolationTest`、`ForumSharedAuthTest`；原生登录界面另见 `integration.AuthPageTest`、`ui.account.ForumMirrorLoginTest` 和 `ui.settings.BookSourceNavigationTest`。
 - Android 平台解析：`ForumCommunityRulesParserAndroidTest`。
 - 文件/恢复：`BookExportUiTest`、`LibraryBackupFlowTest`、`files.downloads.BookFileActionsTest`、`files.importing.DownloadImportCleanupTest`；书架移除时的持久化清理仍由 `data.storage.ShelfCopyCleanupTest` 覆盖。
+- 系统文件分享：`files.importing.SharedDocumentIntentsTest` 检查分享菜单的类型匹配和附件读取；`ui.shelf.SharedDocumentImportTest` 检查冷启动、运行中再次分享、ClipData 多文件、旋转恢复、重复文件和不支持格式。可以使用 `-PisolatedLibraryTests=true` 构建独立测试包。
 - 静态交互：`EInkReaderFlowTest`、`ReducedMotionSheetTest`、`PanelSessionTest`。`EInkReaderFlowTest` 同时覆盖物理按键、滚动/分页锚点互换、搜索与重新进入阅读；离开阅读器后按现有“阅读与朗读”“外观与操作”分类检查设置。
 - 设置分类转场：`SettingsMotionTest` 覆盖六个分类的进入/返回中间帧、快速系统返回、电子纸与减少动效直接切换、途中关闭动画及保留滚动位置；`SettingsCategoriesTest` 验证分类与重建恢复。
 

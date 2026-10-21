@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package cc.novelia.app.ui.shelf
 
+import android.net.Uri
 import cc.novelia.app.ui.components.base.AppCheckbox
 import cc.novelia.app.ui.components.base.AppButton
 import cc.novelia.app.ui.components.base.AppTextButton
@@ -85,7 +86,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
-@Composable fun ShelfScreen(c: AppController, onOpenBook: (BookRef) -> Unit = c::book, selectedBookKey: String? = null) {
+@Composable fun ShelfScreen(c: AppController, onOpenBook: (BookRef) -> Unit = c::book, selectedBookKey: String? = null,
+    sharedDocuments: List<Uri> = emptyList(), onSharedDocumentsConsumed: (List<Uri>) -> Unit = {}) {
     val state by c.store.state.collectAsStateWithLifecycle()
     val profile by c.session.profile.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableIntStateOf(0) }; var query by rememberSaveable { mutableStateOf("") }; var folder by rememberSaveable { mutableStateOf("全部") }; var sort by rememberSaveable { mutableIntStateOf(0) }
@@ -122,6 +124,13 @@ import kotlinx.coroutines.withContext
     val importModel = rememberDocumentImporter(c)
     val importState by importModel.state.collectAsStateWithLifecycle()
     val importing = importState.running
+    LaunchedEffect(sharedDocuments, importing) {
+        if(sharedDocuments.isNotEmpty() && !importing) {
+            tab = 1
+            importModel.start(sharedDocuments)
+            onSharedDocumentsConsumed(sharedDocuments)
+        }
+    }
     LaunchedEffect(importState.bookKeys) { importedKeys = importState.bookKeys }
     val importer = rememberOpenMultipleDocumentsPicker(DocumentPickerTypes.Books) { uris ->
         importModel.start(uris)

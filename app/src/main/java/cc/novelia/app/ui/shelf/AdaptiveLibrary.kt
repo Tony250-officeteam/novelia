@@ -1,5 +1,6 @@
 package cc.novelia.app.ui.shelf
 
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.VerticalDivider
@@ -21,7 +22,9 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
 /** 书架导航项统一持有选中书目，使阅读返回和标签切换能够恢复选择。 */
-@Composable fun AdaptiveLibraryScreen(c: AppController, navigationState: SavedStateHandle, onCompactDetailChanged: (Boolean) -> Unit = {}) {
+@Composable fun AdaptiveLibraryScreen(c: AppController, navigationState: SavedStateHandle,
+    sharedDocuments: List<Uri> = emptyList(), onSharedDocumentsConsumed: (List<Uri>) -> Unit = {},
+    onCompactDetailChanged: (Boolean) -> Unit = {}) {
     var selectedKey by rememberSaveable { mutableStateOf<String?>(null) }
     val showShelfList by navigationState.getStateFlow(SHOW_SHELF_LIST, false).collectAsStateWithLifecycle()
     LaunchedEffect(showShelfList) {
@@ -50,7 +53,7 @@ import kotlinx.coroutines.flow.map
                 // 手机仍保持单击打开本地小说；在大屏上选择的书籍，
                 // 缩小窗口后转为完整详情页。
                 if(ref.isLocal && !expanded) c.book(ref) else selectedKey = ref.key
-            }, selectedBookKey = selectedKey)
+            }, selectedBookKey = selectedKey, sharedDocuments = sharedDocuments, onSharedDocumentsConsumed = onSharedDocumentsConsumed)
         },
         detail = { key -> BookScreen(c, BookRef.fromKey(key), onBack = { selectedKey = null }) },
     )
