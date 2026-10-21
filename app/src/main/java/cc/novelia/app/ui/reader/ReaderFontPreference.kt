@@ -100,7 +100,8 @@ internal data class ReaderFontFace(val typeface: Typeface, val available: Boolea
     val maxHeight = LocalConfiguration.current.screenHeightDp.dp * .9f
     AppDialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 20.dp), contentAlignment = Alignment.Center) {
-            Surface(Modifier.widthIn(max = 480.dp).fillMaxWidth().heightIn(max = maxHeight).testTag("reader-font-dialog"),
+            // 字体库和预览异步更新时保持窗口高度，避免入场后重新居中造成跳动。
+            Surface(Modifier.widthIn(max = 480.dp).fillMaxWidth().height(maxHeight).testTag("reader-font-dialog"),
                 shape = MaterialTheme.shapes.extraLarge, color = colors.surfaceContainer) {
                 Column {
                     Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically,
@@ -108,7 +109,7 @@ internal data class ReaderFontFace(val typeface: Typeface, val available: Boolea
                         Text("阅读字体", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
                         Text("即时生效", style = MaterialTheme.typography.labelMedium, color = colors.primary)
                     }
-                    AppScrollColumn(Modifier.weight(1f, fill = false), contentModifier = Modifier.padding(horizontal = 20.dp),
+                    AppScrollColumn(Modifier.weight(1f), contentModifier = Modifier.padding(horizontal = 20.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         ReaderFontOptions(context, settings, defaults, onChange)
                         Spacer(Modifier.height(2.dp))

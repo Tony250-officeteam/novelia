@@ -4,6 +4,7 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ExpandMore
@@ -17,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -55,15 +57,21 @@ import cc.novelia.app.ui.theme.appReducedMotion
         // 先按完整宽度测量，避免按钮自身挤出溢出；展开后仍保留收起入口。
         val overflows = measurer.measure(text, style, maxLines = 2, overflow = TextOverflow.Ellipsis,
             constraints = Constraints(maxWidth = constraints.maxWidth)).hasVisualOverflow
+        val canExpand = expanded || overflows
         Row(Modifier.fillMaxWidth().testTag("$tag-row"), verticalAlignment = Alignment.Bottom) {
             Text(text,
                 Modifier.weight(1f).testTag(tag).semantics { if(!original) heading() }
+                    .then(if(canExpand) Modifier.clickable(
+                        onClickLabel = if(expanded) "收起$label" else "展开$label", role = Role.Button
+                    ) { expanded = !expanded }.semantics {
+                        stateDescription = if(expanded) "${label}已展开" else "${label}已折叠"
+                    } else Modifier)
                     .then(if(reducedMotion) Modifier else Modifier.animateContentSize(
                         tween(AppMotion.Standard, easing = FastOutSlowInEasing), alignment = Alignment.TopStart)),
                 style = style,
                 color = if(original) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
                 maxLines = if(expanded) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis)
-            if(expanded || overflows) {
+            if(canExpand) {
                 CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
                     AppIconButton(onClick = { expanded = !expanded },
                         modifier = Modifier.size(28.dp).testTag("$tag-toggle")

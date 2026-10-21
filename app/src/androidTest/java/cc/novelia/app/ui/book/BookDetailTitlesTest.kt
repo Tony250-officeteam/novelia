@@ -54,16 +54,18 @@ class BookDetailTitlesTest {
             val arrow = toggle(original).getUnclippedBoundsInRoot()
             assertTrue(arrow.top >= row.top && arrow.bottom <= row.bottom)
         }
-        toggle().assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "主标题已折叠")).performClick()
+        compose.onNodeWithTag("book-detail-title")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "主标题已折叠")).performClick()
         assertComplete("book-detail-title")
         assertCollapsed("book-detail-original-title")
-        toggle(original = true).performScrollTo().performClick()
+        compose.onNodeWithTag("book-detail-original-title").performScrollTo().performClick()
         assertComplete("book-detail-title")
         assertComplete("book-detail-original-title")
-        toggle().performScrollTo().assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "主标题已展开")).performClick()
+        compose.onNodeWithTag("book-detail-title").performScrollTo()
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "主标题已展开")).performClick()
         assertCollapsed("book-detail-title")
         assertComplete("book-detail-original-title")
-        toggle(original = true).performScrollTo().performClick()
+        compose.onNodeWithTag("book-detail-original-title").performScrollTo().performClick()
         assertCollapsed("book-detail-title")
         assertCollapsed("book-detail-original-title")
     }
@@ -77,6 +79,8 @@ class BookDetailTitlesTest {
         assertComplete("book-detail-original-title")
         toggle().assertDoesNotExist()
         toggle(original = true).assertDoesNotExist()
+        compose.onNodeWithTag("book-detail-title").assertHasNoClickAction()
+        compose.onNodeWithTag("book-detail-original-title").assertHasNoClickAction()
         compose.runOnIdle { current = current.copy(originalTitle = "  风与书页  ") }
         compose.onNodeWithTag("book-detail-original-title").assertTextEquals("风与书页")
         toggle(original = true).assertDoesNotExist()
@@ -103,7 +107,8 @@ class BookDetailTitlesTest {
     @Test fun overflowIsRecomputedWhenTheAvailableWidthOrSystemFontScaleChanges() {
         var width by mutableStateOf(360.dp)
         var scale by mutableFloatStateOf(1f)
-        val medium = book.copy(title = "和伙伴们踏上旅途寻找那片遥远星空的故事", originalTitle = "")
+        // 大字号使用非线性缩放，需足够长的标题才能在 2 倍字体设置下超过两行。
+        val medium = book.copy(title = "和伙伴们踏上旅途寻找那片遥远星空并重逢的冒险故事", originalTitle = "")
         compose.setContent { NoveliaTheme("light") {
             CompositionLocalProvider(LocalDensity provides Density(1f, scale)) {
                 Column(Modifier.requiredWidth(width).height(480.dp).verticalScroll(rememberScrollState())) { BookDetailTitles(medium, subtitle) }
