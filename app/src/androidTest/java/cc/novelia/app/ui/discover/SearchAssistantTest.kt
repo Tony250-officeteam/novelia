@@ -11,6 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
@@ -115,7 +116,7 @@ class SearchAssistantTest {
         compose.onNodeWithTag("assistant-tag-input").performTextInput("病娇")
         compose.onNodeWithTag("assistant-candidate-ヤンデレ").performScrollTo().performClick()
         screenshot("search-assistant-tag-alias")
-        compose.onNodeWithTag("keyword-include").performClick()
+        compose.onNodeWithTag("keyword-translation").assertDoesNotExist()
         compose.runOnIdle { assertEquals("(旅人 | 少女)", query) }
         compose.onNodeWithTag("assistant-append").performScrollTo().performClick()
         compose.runOnIdle { assertEquals("(旅人 | 少女) ヤンデレ$", query); assertFalse(expanded) }
@@ -129,9 +130,45 @@ class SearchAssistantTest {
         }
         compose.onNodeWithTag("assistant-tag-input").performTextInput("未知の世界")
         compose.onNodeWithTag("assistant-manual-tag").performScrollTo().performClick()
-        compose.onNodeWithTag("keyword-exclude").performClick()
+        compose.onNodeWithTag("assistant-manual-tag").performClick()
+        compose.onNodeWithTag("keyword-translation").assertDoesNotExist()
         compose.onNodeWithTag("assistant-append").performScrollTo().performClick()
         compose.runOnIdle { assertEquals("-未知の世界$", expression) }
+    }
+
+    @Test fun candidatesAndSelectedConditionsShareTheThreeStateCycleWithoutOpeningAnEditor() {
+        compose.setContent {
+            NoveliaTheme("light") { AppInteractionMode(false, true) {
+                SearchAssistantPanel("", listOf(KeywordEntry("标签")), true, {}, {}, { _, _ -> }, {})
+            } }
+        }
+        val candidate = compose.onNodeWithTag("assistant-candidate-标签")
+        val selected = compose.onNodeWithTag("assistant-selected-标签")
+        fun assertState(description: String) {
+            candidate.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, description))
+            compose.onNodeWithTag("keyword-translation").assertDoesNotExist()
+        }
+        candidate.performScrollTo().performClick()
+        assertState("已包含")
+        compose.onNodeWithTag("assistant-preview").assertTextEquals("标签$")
+        candidate.performClick()
+        assertState("已排除")
+        selected.assertTextEquals("排除：标签")
+        compose.onNodeWithTag("assistant-preview").assertTextEquals("-标签$")
+        candidate.performClick()
+        assertState("未选择")
+        selected.assertDoesNotExist()
+        compose.onNodeWithTag("assistant-preview").assertTextEquals("添加条件后在此实时预览")
+        candidate.performClick()
+        selected.performScrollTo().performClick()
+        assertState("已排除")
+        selected.performClick()
+        assertState("未选择")
+        selected.assertDoesNotExist()
+        candidate.performScrollTo().performClick()
+        compose.onNodeWithContentDescription("移除条件 标签").performScrollTo().performClick()
+        assertState("未选择")
+        selected.assertDoesNotExist()
     }
 
     @Test fun tagTranslationCanBeCleared() {

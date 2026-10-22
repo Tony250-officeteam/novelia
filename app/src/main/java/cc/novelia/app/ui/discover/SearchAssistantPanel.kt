@@ -5,8 +5,6 @@ import cc.novelia.app.ui.components.base.AppButton
 import cc.novelia.app.ui.components.base.AppTextButton
 import cc.novelia.app.ui.components.base.AppOutlinedButton
 import cc.novelia.app.ui.components.base.AppIconButton
-import cc.novelia.app.ui.components.base.AppSelectionChip
-import cc.novelia.app.ui.components.base.AppActionChip
 import cc.novelia.app.ui.components.base.AppChipFlowRow
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
@@ -28,8 +26,8 @@ import cc.novelia.app.ui.components.base.AppAlertDialog
 import cc.novelia.app.ui.components.base.AppScrollColumn
 import cc.novelia.app.ui.components.base.FilterPanelExpandIcon
 import cc.novelia.app.ui.components.base.FilterPanelVisibility
-import cc.novelia.app.ui.components.keywords.KeywordEditorDialog
 import cc.novelia.app.ui.components.keywords.KeywordCategoryChips
+import cc.novelia.app.ui.components.keywords.KeywordSelectionChip
 import cc.novelia.app.ui.components.base.rememberPanelScrollState
 
 @Composable
@@ -57,7 +55,6 @@ fun SearchAssistantPanel(
     var excludedTags by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var tagQuery by rememberSaveable { mutableStateOf("") }
     var category by rememberSaveable { mutableStateOf("全部") }
-    var editing by remember { mutableStateOf<KeywordEntry?>(null) }
     var replacing by remember { mutableStateOf(false) }
     var browsingLibrary by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(categoryNames) { if(category != "全部" && category !in categoryNames) category = "全部" }
@@ -69,12 +66,14 @@ fun SearchAssistantPanel(
     val lookup = remember(entries) { entries.associateBy { it.original } }
     val candidates = remember(entries, tagQuery, category) { KeywordCatalog.suggestions(entries, tagQuery, category, 12) }
     val manual = tagQuery.trim().takeIf { it.isNotBlank() && KeywordCatalog.exactMatch(entries, it) == null }
-    fun selectTags(originals: List<String>, include: Boolean) {
-        val next = KeywordSelection(includedTags, excludedTags).add(originals, include)
+    val selection = KeywordSelection(includedTags, excludedTags)
+    fun updateSelection(next: KeywordSelection) {
         includedTags = next.included
         excludedTags = next.excluded
     }
-    fun removeTag(original: String) { includedTags = includedTags - original; excludedTags = excludedTags - original }
+    fun selectTags(originals: List<String>, include: Boolean) = updateSelection(KeywordSelection(includedTags, excludedTags).add(originals, include))
+    fun cycleTag(original: String) = updateSelection(KeywordSelection(includedTags, excludedTags).cycle(original))
+    fun removeTag(original: String) = updateSelection(KeywordSelection(includedTags, excludedTags).remove(original))
     fun apply(expression: String) {
         onApply(expression)
         all = ""; any = ""; exact = ""; excluded = ""; minimum = ""; maximum = ""
@@ -116,28 +115,34 @@ fun SearchAssistantPanel(
                                 supportingText = { if(tagQuery.trim().length > KeywordCatalog.MAX_TEXT_LENGTH) Text("标签最多 ${KeywordCatalog.MAX_TEXT_LENGTH} 字符，请缩短后添加。") },
                                 modifier = Modifier.fillMaxWidth().testTag("assistant-tag-input"))
                             KeywordCategoryChips(listOf("全部") + categoryNames, category, { category = it }, Modifier.fillMaxWidth(), PaddingValues(vertical = 4.dp))
-                            Text("这里显示最多 12 个候选。标签库中可按分类批量包含或排除，返回后逐项调整。", style = MaterialTheme.typography.bodySmall)
+                            Text("点按标签依次包含、排除、恢复未选择。这里最多显示 12 个候选；浏览全部标签可按分类批量选择。", style = MaterialTheme.typography.bodySmall)
                             AppChipFlowRow() {
                                 candidates.forEach { entry ->
-                                    AppActionChip(onClick = { editing = entry }, label = { Text(entry.label) },
-                                        modifier = Modifier.testTag("assistant-candidate-${entry.original}"))
+                                    key(entry.original) {
+                                        KeywordSelectionChip(entry.label, selection.stateOf(entry.original), { cycleTag(entry.original) },
+                                            modifier = Modifier.testTag("assistant-candidate-${entry.original}"), enabled = KeywordCatalog.canSearch(entry.original))
+                                    }
                                 }
                             }
                             if(manual != null) {
-                                AppOutlinedButton(onClick = { editing = KeywordEntry(manual) }, enabled = KeywordCatalog.canSearch(manual), modifier = Modifier.testTag("assistant-manual-tag")) {
-                                    Text("添加原文：$manual")
+                                key(manual) {
+                                    KeywordSelectionChip("添加原文：$manual", selection.stateOf(manual), { cycleTag(manual) },
+                                        enabled = KeywordCatalog.canSearch(manual), modifier = Modifier.testTag("assistant-manual-tag"))
                                 }
                                 if(manual.length <= KeywordCatalog.MAX_TEXT_LENGTH && !KeywordCatalog.canSearch(manual)) Text("原站标签不能包含空白或以 - 开头。可在下方用普通关键词搜索。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                             }
                             if(candidates.isEmpty() && manual == null) Text("这个分类暂时没有匹配标签。可以切换分类或输入标签原文。", style = MaterialTheme.typography.bodySmall)
                             if(includedTags.isNotEmpty() || excludedTags.isNotEmpty()) {
                                 Text("已选条件", style = MaterialTheme.typography.titleSmall)
-                                Text("包含标签需全部满足；命中任一排除标签即排除。点按可修改，× 可移除。", style = MaterialTheme.typography.bodySmall)
+                                Text("包含标签需全部满足；命中任一排除标签即排除。点按继续切换状态，× 可直接移除。", style = MaterialTheme.typography.bodySmall)
                                 AppChipFlowRow() {
                                     (includedTags.map { it to true } + excludedTags.map { it to false }).forEach { (original, include) ->
                                         val entry = lookup[original] ?: KeywordEntry(original)
-                                        AppSelectionChip(true, onClick = { editing = entry }, label = { Text("${if(include) "包含" else "排除"}：${entry.label}") },
-                                            trailingIcon = { AppIconButton(onClick = { removeTag(original) }, modifier = Modifier.size(48.dp)) { Icon(Icons.Outlined.Close, "移除条件 $original", Modifier.size(16.dp)) } })
+                                        key(original) {
+                                            KeywordSelectionChip("${if(include) "包含" else "排除"}：${entry.label}", selection.stateOf(original), { cycleTag(original) },
+                                                modifier = Modifier.testTag("assistant-selected-$original"),
+                                                trailingIcon = { AppIconButton(onClick = { removeTag(original) }, modifier = Modifier.size(48.dp)) { Icon(Icons.Outlined.Close, "移除条件 $original", Modifier.size(16.dp)) } })
+                                        }
                                     }
                                 }
                             }
@@ -168,18 +173,10 @@ fun SearchAssistantPanel(
             }
         }
     }
-    editing?.let { entry ->
-        KeywordEditorDialog(entry, onDismiss = { editing = null }, onSave = onSaveTranslation,
-            onInclude = { selectTags(listOf(entry.original), true); editing = null },
-            onExclude = { selectTags(listOf(entry.original), false); editing = null },
-            categories = categoryNames, onSaveDetails = libraryActions?.editEntry,
-            onRemove = if(entry.original in includedTags || entry.original in excludedTags) ({ removeTag(entry.original); editing = null }) else null)
-    }
     if(browsingLibrary) KeywordLibraryDialog(entries, categoryNames, { browsingLibrary = false }, onSaveTranslation, libraryActions,
-        onInclude = { entry -> selectTags(listOf(entry.original), true) },
-        onExclude = { entry -> selectTags(listOf(entry.original), false) },
+        onToggle = { entry -> cycleTag(entry.original) },
         included = includedTags, excluded = excludedTags, persistenceError = persistenceError,
-        onIncludeCategory = { selectTags(it, true) }, onExcludeCategory = { selectTags(it, false) }, onRemove = { removeTag(it.original) })
+        onIncludeCategory = { selectTags(it, true) }, onExcludeCategory = { selectTags(it, false) })
     if(replacing) AppAlertDialog(onDismissRequest = { replacing = false }, title = { Text("替换手工搜索条件？") },
         text = { Text("当前搜索框：\n$query\n\n替换为：\n$generated") },
         confirmButton = { AppTextButton(onClick = { replacing = false; apply(generated) }) { Text("替换并搜索") } },

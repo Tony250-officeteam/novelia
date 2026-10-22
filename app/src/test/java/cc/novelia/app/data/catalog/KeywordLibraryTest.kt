@@ -80,6 +80,22 @@ class KeywordLibraryTest {
         assertEquals(26, excluded.excluded.size)
     }
 
+    @Test fun tagCyclesFromUnselectedToIncludedToExcludedWithoutChangingOtherConditions() {
+        val initial = KeywordSelection(listOf("保留包含"), listOf("保留排除"))
+        assertEquals(KeywordSelectionState.Unselected, initial.stateOf("标签"))
+        val included = initial.cycle("标签")
+        assertEquals(KeywordSelectionState.Included, included.stateOf("标签"))
+        assertEquals(initial.add(listOf("标签"), true), included)
+        val excluded = included.cycle("标签")
+        assertEquals(KeywordSelectionState.Excluded, excluded.stateOf("标签"))
+        assertEquals(initial.add(listOf("标签"), false), excluded)
+        assertEquals(initial, excluded.cycle("标签"))
+        assertEquals(initial, included.remove("标签"))
+        assertEquals(initial, excluded.remove("标签"))
+        assertEquals(initial, initial.cycle("有 空格"))
+        assertEquals(initial, initial.cycle("-非法"))
+    }
+
     @Test fun renamingAndDeletingCategoriesRetainsLabelsAndMovesMembers() {
         val base = KeywordLibrary.defaults().createCategory("我的分类")
             .editEntry("ヤンデレ", "自定病娇", "我的分类")

@@ -47,12 +47,11 @@ class KeywordLibraryUiTest {
         capture("keyword-category-batch")
         compose.runOnIdle { assertEquals("手工条件", query) }
         compose.onNodeWithTag("library-tag-成员0").performClick()
-        compose.onNodeWithTag("keyword-remove").performClick()
+        compose.onNodeWithTag("library-tag-成员0").performClick()
         compose.onNodeWithTag("library-tag-成员0").assertIsNotSelected()
         compose.onNodeWithTag("keyword-library-search").performTextReplacement("译名01")
         compose.waitUntil { compose.onAllNodesWithTag("library-tag-成员1").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("library-tag-成员1").performClick()
-        compose.onNodeWithTag("keyword-exclude").performClick()
         compose.onNodeWithContentDescription("返回").performClick()
         val expected = (2..15).joinToString(" ") { "成员$it$" } + " -成员1$"
         compose.onNodeWithTag("assistant-preview").assertIsDisplayed().assertTextEquals(expected)
@@ -110,20 +109,48 @@ class KeywordLibraryUiTest {
         compose.onNodeWithTag("keyword-library-search").performTextInput("中文标签 40")
         compose.waitUntil { compose.onAllNodesWithTag("library-tag-tag-40").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("library-tag-tag-40").performClick()
-        compose.onNodeWithTag("keyword-include").performClick()
+        compose.onNodeWithTag("keyword-translation").assertDoesNotExist()
         compose.onNodeWithTag("library-tag-tag-40").assertIsSelected()
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "已包含"))
         val includedBounds = compose.onNodeWithTag("library-tag-tag-40").getUnclippedBoundsInRoot()
         compose.onNodeWithTag("library-tag-tag-40").performClick()
-        compose.onNodeWithTag("keyword-exclude").performClick()
         compose.onNodeWithTag("library-tag-tag-40").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "已排除"))
         assertEquals(includedBounds, compose.onNodeWithTag("library-tag-tag-40").getUnclippedBoundsInRoot())
         compose.onNodeWithTag("library-tag-tag-40").performClick()
-        compose.onNodeWithTag("keyword-include").performClick()
+        compose.onNodeWithTag("library-tag-tag-40").assertIsNotSelected()
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "未选择"))
+        compose.onNodeWithTag("library-tag-tag-40").performClick()
         compose.onNodeWithContentDescription("返回").performClick()
         compose.onNodeWithTag("assistant-preview").assertIsDisplayed().assertTextEquals("tag-40$")
         compose.onNodeWithTag("assistant-append").performScrollTo().performClick()
         compose.runOnIdle { assertEquals("原有关键词 tag-40$", query); assertFalse(expanded) }
+    }
+
+    @Test fun editingRequiresEnteringTheLibraryAndReturningPreservesSearchAndConditions() {
+        var entries by mutableStateOf(listOf(KeywordEntry("标签", "旧译名"), KeywordEntry("其他标签")))
+        compose.setContent { NoveliaTheme("light") { AppInteractionMode(false, true) {
+            SearchAssistantPanel("", entries, true, {}, {}, { original, translation ->
+                entries = entries.map { if(it.original == original) it.copy(translation = translation) else it }
+            }, {})
+        } } }
+        compose.onNodeWithTag("assistant-open-library").performScrollTo().performClick()
+        compose.onNodeWithTag("keyword-library-search").performTextInput("标签")
+        compose.waitUntil { compose.onAllNodesWithTag("library-tag-标签").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("library-tag-标签").performClick()
+        compose.onNodeWithTag("keyword-translation").assertDoesNotExist()
+        compose.onNodeWithTag("keyword-open-library").performClick()
+        compose.onNodeWithText("点按标签编辑译名与分类").assertIsDisplayed()
+        compose.waitUntil { compose.onAllNodesWithTag("library-tag-标签").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("library-tag-标签").performClick()
+        compose.onNodeWithTag("keyword-translation").performTextReplacement("新译名")
+        compose.onNodeWithText("保存翻译").performClick()
+        compose.onNodeWithContentDescription("返回").performClick()
+        compose.onNodeWithTag("keyword-open-library").assertIsDisplayed()
+        compose.onNodeWithTag("keyword-library-search").assertTextContains("标签")
+        compose.waitUntil { compose.onAllNodesWithTag("library-tag-标签").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("library-tag-标签").assertIsSelected().assertTextEquals("标签 (新译名)")
+        compose.onNodeWithContentDescription("返回").performClick()
+        compose.onNodeWithTag("assistant-preview").assertTextEquals("标签$")
     }
 
     @Test fun categoriesCanBeCreatedRenamedAssignedAndDeletedWithoutDeletingTags() {

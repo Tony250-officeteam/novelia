@@ -14,6 +14,7 @@ import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
@@ -59,15 +60,25 @@ class KeywordLibraryActions(
 @Composable fun KeywordLibraryDialog(
     entries: List<KeywordEntry>, categories: List<String>, onDismiss: () -> Unit,
     onSaveTranslation: (String, String) -> Unit, actions: KeywordLibraryActions?,
-    onInclude: (KeywordEntry) -> Unit, onExclude: (KeywordEntry) -> Unit,
+    onToggle: (KeywordEntry) -> Unit,
     included: List<String>, excluded: List<String>, persistenceError: String?,
     onIncludeCategory: (List<String>) -> Unit, onExcludeCategory: (List<String>) -> Unit,
-    onRemove: (KeywordEntry) -> Unit,
 ) {
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    var editingLibrary by rememberSaveable { mutableStateOf(false) }
+    val pageState = rememberSaveableStateHolder()
+    val onBack = { if(editingLibrary) editingLibrary = false else onDismiss() }
+    Dialog(onDismissRequest = onBack, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxSize().imePadding()) {
-            KeywordLibraryContent(entries, categories, onDismiss, onSaveTranslation, actions, onInclude, onExclude,
-                included, excluded, persistenceError, onIncludeCategory, onExcludeCategory, onRemove)
+            pageState.SaveableStateProvider(editingLibrary) {
+                if(editingLibrary) {
+                    KeywordLibraryContent(entries, categories, onBack, onSaveTranslation, actions, persistenceError = persistenceError)
+                } else {
+                    KeywordLibraryContent(entries, categories, onBack, onSaveTranslation,
+                        onToggle = onToggle, included = included, excluded = excluded, persistenceError = persistenceError,
+                        onIncludeCategory = onIncludeCategory, onExcludeCategory = onExcludeCategory,
+                        onOpenLibrary = { editingLibrary = true })
+                }
+            }
         }
     }
 }
@@ -76,10 +87,10 @@ class KeywordLibraryActions(
     entries: List<KeywordEntry>, categories: List<String>, onBack: () -> Unit,
     onSaveTranslation: (String, String) -> Unit,
     actions: KeywordLibraryActions? = null,
-    onInclude: ((KeywordEntry) -> Unit)? = null, onExclude: ((KeywordEntry) -> Unit)? = null,
+    onToggle: ((KeywordEntry) -> Unit)? = null,
     included: List<String> = emptyList(), excluded: List<String> = emptyList(), persistenceError: String? = null,
     onIncludeCategory: ((List<String>) -> Unit)? = null, onExcludeCategory: ((List<String>) -> Unit)? = null,
-    onRemove: ((KeywordEntry) -> Unit)? = null,
+    onOpenLibrary: (() -> Unit)? = null,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     var category by rememberSaveable { mutableStateOf("全部") }
@@ -96,8 +107,10 @@ class KeywordLibraryActions(
         value = null
         value = withContext(Dispatchers.Default) { KeywordCatalog.suggestions(entries, settledQuery, activeCategory, entries.size) }
     }.value
-    Screen("标签库", onBack, actions = {
-        if(actions != null) AppTextButton(onClick = { managing = true }, modifier = Modifier.heightIn(min = 48.dp)) { Text("管理分类") }
+    Screen(if(onToggle != null) "浏览全部标签" else "标签库", onBack, actions = {
+        if(onOpenLibrary != null) AppTextButton(onClick = onOpenLibrary,
+            modifier = Modifier.heightIn(min = 48.dp).testTag("keyword-open-library")) { Text("前往标签库") }
+        else if(actions != null) AppTextButton(onClick = { managing = true }, modifier = Modifier.heightIn(min = 48.dp)) { Text("管理分类") }
     }) { padding ->
         Column(Modifier.padding(padding)) {
             OutlinedTextField(query, { query = it }, placeholder = { Text("搜索原文、译名或别名") }, singleLine = true,
@@ -125,24 +138,22 @@ class KeywordLibraryActions(
                     if(included.isNotEmpty() || excluded.isNotEmpty()) Text("包含 ${included.size} · 排除 ${excluded.size}",
                         style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                 }
-                Text(if(onInclude != null) "点按标签选择包含或排除，返回后应用" else "点按标签编辑译名与分类",
+                Text(if(onToggle != null) "点按标签依次包含、排除、恢复未选择，返回后应用。" else "点按标签编辑译名与分类",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 persistenceError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
             HorizontalDivider()
             if(results?.isEmpty() == true) EmptyState("没有匹配的标签", "换个关键词或分类试试。", Icons.Outlined.SearchOff)
             else key(settledQuery, activeCategory) {
-                KeywordTagCloud(results.orEmpty(), included, excluded, { editing = it }, Modifier.weight(1f).fillMaxWidth())
+                KeywordTagCloud(results.orEmpty(), included, excluded,
+                    { if(onToggle != null) onToggle(it) else editing = it }, Modifier.weight(1f).fillMaxWidth(), selectionMode = onToggle != null)
             }
         }
     }
     editing?.let { selected ->
         val latest = entries.firstOrNull { it.original == selected.original } ?: selected
         KeywordEditorDialog(latest, { editing = null }, onSaveTranslation,
-            onInclude = onInclude?.let { include -> { include(latest); editing = null } },
-            onExclude = onExclude?.let { exclude -> { exclude(latest); editing = null } },
-            categories = categories, onSaveDetails = actions?.editEntry,
-            onRemove = onRemove?.takeIf { latest.original in included || latest.original in excluded }?.let { remove -> { remove(latest); editing = null } })
+            categories = categories, onSaveDetails = actions?.editEntry)
     }
     if(managing && actions != null) KeywordCategoriesSheet(entries, categories, actions) { managing = false }
 }

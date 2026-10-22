@@ -1,7 +1,6 @@
 package cc.novelia.app.ui.discover
 
 import cc.novelia.app.ui.components.base.AppLinearProgressIndicator
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -13,16 +12,14 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextMeasurer
-import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import cc.novelia.app.data.catalog.KeywordEntry
+import cc.novelia.app.data.catalog.KeywordCatalog
+import cc.novelia.app.data.catalog.KeywordSelectionState
 import cc.novelia.app.ui.components.base.AppLazyColumn
-import cc.novelia.app.ui.components.base.AppSelectionChip
 import cc.novelia.app.ui.components.base.ChipSpacing
+import cc.novelia.app.ui.components.keywords.KeywordSelectionChip
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -37,6 +34,7 @@ private data class MeasuredKeyword(val entry: KeywordEntry, val width: Int)
 @Composable internal fun KeywordTagCloud(
     entries: List<KeywordEntry>, included: List<String>, excluded: List<String>,
     onClick: (KeywordEntry) -> Unit, modifier: Modifier = Modifier,
+    selectionMode: Boolean = false,
 ) {
     val density = LocalDensity.current
     val direction = LocalLayoutDirection.current
@@ -79,18 +77,14 @@ private data class MeasuredKeyword(val entry: KeywordEntry, val width: Int)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(ChipSpacing), verticalAlignment = Alignment.CenterVertically) {
                     row.forEach { (entry, width) ->
                         key(entry.original) {
-                            val isExcluded = entry.original in excludedSet
-                            val isIncluded = entry.original in includedSet
-                            val scheme = MaterialTheme.colorScheme
-                            AppSelectionChip(isIncluded || isExcluded, { onClick(entry) },
-                                label = { Text(entry.label, style = style, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                                    textDecoration = if(isExcluded) TextDecoration.LineThrough else null) },
-                                modifier = Modifier.width(with(density) { width.toDp() }).testTag("library-tag-${entry.original}").semantics {
-                                    stateDescription = when { isExcluded -> "已排除"; isIncluded -> "已包含"; else -> "未选择" }
-                                },
-                                colors = if(isExcluded) FilterChipDefaults.filterChipColors(selectedContainerColor = scheme.errorContainer,
-                                    selectedLabelColor = scheme.onErrorContainer) else null,
-                                border = if(isExcluded) BorderStroke(1.5.dp, scheme.error) else null)
+                            val state = when(entry.original) {
+                                in excludedSet -> KeywordSelectionState.Excluded
+                                in includedSet -> KeywordSelectionState.Included
+                                else -> KeywordSelectionState.Unselected
+                            }
+                            KeywordSelectionChip(entry.label, state, { onClick(entry) },
+                                modifier = Modifier.width(with(density) { width.toDp() }).testTag("library-tag-${entry.original}"),
+                                enabled = !selectionMode || KeywordCatalog.canSearch(entry.original), maxLines = 2)
                         }
                     }
                 }

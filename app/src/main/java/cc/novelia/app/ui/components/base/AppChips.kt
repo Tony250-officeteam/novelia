@@ -33,10 +33,11 @@ internal val ChipSpacing = 12.dp
     shape: Shape = chipShape(),
     colors: SelectableChipColors? = null,
     border: BorderStroke? = null,
+    enabled: Boolean = true,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val scheme = MaterialTheme.colorScheme
-    FilterChip(selected = selected, onClick = onClick,
+    FilterChip(selected = selected, onClick = onClick, enabled = enabled,
         label = { Box(Modifier.padding(vertical = 6.dp)) { label() } },
         modifier = modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).pressFeedback(interaction),
         leadingIcon = leadingIcon, trailingIcon = trailingIcon, shape = appShape(shape),
