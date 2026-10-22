@@ -22,6 +22,22 @@ import cc.novelia.app.ui.components.base.AsyncContent
 class AsyncContentRevealTest {
     @get:Rule val compose = createComposeRule()
 
+    @Test fun cachedContentIsVisibleImmediatelyWithoutReplayingItsReveal() {
+        compose.mainClock.autoAdvance = false
+        try {
+            compose.setContent {
+                Box(Modifier.size(80.dp).background(Color.White).testTag("reveal-frame")) {
+                    AsyncContent("book", load = { error("缓存命中不应请求") }, initialResult = "cached", revealContent = true) { _, _ ->
+                        Box(Modifier.fillMaxSize().background(Color.Red))
+                    }
+                }
+            }
+            compose.mainClock.advanceTimeByFrame()
+            val pixels = compose.onNodeWithTag("reveal-frame").captureToImage().toPixelMap()
+            assertEquals(Color.Red, pixels[pixels.width / 2, 1])
+        } finally { compose.mainClock.autoAdvance = true }
+    }
+
     @Test fun delayedSuccessRevealsAfterLoadingAndCanBeMadeStaticMidAnimation() {
         val result = CompletableDeferred<String>()
         var reduced by mutableStateOf(false)

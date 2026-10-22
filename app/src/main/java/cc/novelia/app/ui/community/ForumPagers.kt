@@ -9,6 +9,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.SaveableStateHolder
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import cc.novelia.app.data.community.ForumCategory
@@ -23,6 +24,7 @@ import kotlinx.coroutines.launch
     content: @Composable (ForumCategory) -> Unit,
 ) {
     key(categories.map { it.slug }) {
+        val pages = rememberSaveableStateHolder()
         val pager = rememberPagerState(initialPage = categories.indexOfFirst { it.slug == selected }.coerceAtLeast(0)) { categories.size }
         val scope = rememberCoroutineScope()
         val reducedMotion = appReducedMotion()
@@ -47,7 +49,9 @@ import kotlinx.coroutines.launch
             controls()
             HorizontalPager(pager, Modifier.weight(1f).fillMaxWidth().testTag("forum-category-pager"),
                 key = { categories[it].slug }) { index ->
-                Box(Modifier.fillMaxSize()) { content(categories[index]) }
+                pages.SaveableStateProvider(categories[index].slug) {
+                    Box(Modifier.fillMaxSize()) { content(categories[index]) }
+                }
             }
         }
     }

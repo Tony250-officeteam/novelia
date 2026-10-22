@@ -69,6 +69,7 @@ import kotlinx.coroutines.CancellationException
                 c.action(if(value) "已收藏到云端" else "已取消收藏") {
                     c.forumSession.ensureCurrent(binding)
                     favorite.setSaved(value) { c.forumApi.favorite(forumId, it) }
+                    c.forumPages.clear()
                 }
             }
             LaunchedEffect(pendingFavoriteText, binding) {
@@ -117,6 +118,7 @@ import kotlinx.coroutines.CancellationException
     deletion?.let { article -> ConfirmDialog("删除这篇文章？", "请确认已保存需要的内容。", { deletion = null }, confirmLabel = "删除文章") { c.action("文章已删除") {
         require(ForumRules.canDeletePost(article, c.forumSession.profile.value)) { "只有作者在发布后 20 分钟内或管理员可以删除帖子" }
         c.forumApi.deletePost(forumId)
+        c.forumPages.clear()
         deletion = null; c.back()
     } } }
 }

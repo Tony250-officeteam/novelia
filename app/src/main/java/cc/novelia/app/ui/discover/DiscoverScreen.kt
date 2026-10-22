@@ -79,7 +79,7 @@ import kotlinx.coroutines.sync.withPermit
     fun setPage(section: Int, value: Int) { pageNumbers = pageNumbers.mapIndexed { index, page -> if(index == section) value else page } }
     fun resetPages() { pageNumbers = listOf(0, 0, 0) }
     val local by c.store.state.collectAsStateWithLifecycle(); val profile by c.session.profile.collectAsStateWithLifecycle()
-    val favoriteRevision = local.syncStatus[profile?.username]?.lastSuccessAt
+    val binding = c.session.capture()
     val cacheGeneration by c.store.cacheGeneration.collectAsStateWithLifecycle()
     val keywords by c.app.keywords.state.collectAsStateWithLifecycle()
     val keywordIndex by c.app.keywords.displayIndex.collectAsStateWithLifecycle()
@@ -115,7 +115,10 @@ import kotlinx.coroutines.sync.withPermit
             Column(Modifier.fillMaxSize()) {
                 if(section == 0) {
                     val recommendationScroll = rememberLazyListState()
-                    AsyncContent(listOf("recommend", profile?.username, local.blockedAuthors, favoriteRevision), load = { coroutineScope { val web = async { c.api.webList(0, sort = 1) }; val wenku = async { c.api.wenkuList(0) }; enrichAuthors(web.await().items.map { it.card() }, c, local.blockedAuthors) to enrichAuthors(wenku.await().items.map { it.card() }, c, local.blockedAuthors) } }, revealContent = true) { (web, wenku), refresh ->
+                    val requestKey = listOf("recommend", binding, profile?.canEdit, local.blockedAuthors, cacheGeneration)
+                    AsyncContent(requestKey, load = { coroutineScope { val web = async { c.api.webList(0, sort = 1) }; val wenku = async { c.api.wenkuList(0) }; enrichAuthors(web.await().items.map { it.card() }, c, local.blockedAuthors) to enrichAuthors(wenku.await().items.map { it.card() }, c, local.blockedAuthors) } },
+                        initialResult = c.discoverRecommendations?.takeIf { it.first == requestKey }?.second,
+                        onLoaded = { c.discoverRecommendations = requestKey to it }, revealContent = true) { (web, wenku), refresh ->
                         val visibleWeb = remember(web, local.blockedBooks, local.blockedTags, local.blockedAuthors) { web.asSequence().filter { visibleBook(it, local) }.take(8).toList() }
                         val visibleWenku = remember(wenku, local.blockedBooks, local.blockedTags, local.blockedAuthors) { wenku.asSequence().filter { visibleBook(it, local) }.take(6).toList() }
                         AppLazyColumn(state = recommendationScroll, contentPadding = PaddingValues(bottom = 20.dp), onPageTurn = onPageTurn) {
@@ -166,8 +169,8 @@ import kotlinx.coroutines.sync.withPermit
                     // 邻页预组合也只使用自身条件，不能把当前选中分区的数据渲染到另一页。
                     val conditions = if(section == 1) listOf(source, type, translate, sort, effectiveWebLevel, localFilter)
                         else listOf(effectiveWenkuLevel)
-                    val requestKey = listOf(section, page, submitted, conditions, profile?.username, profile?.canEdit,
-                        local.blockedAuthors, searchRevision, local.blockedBooks, local.blockedTags, cacheGeneration, favoriteRevision)
+                    val requestKey = listOf(section, page, submitted, conditions, binding, profile?.canEdit,
+                        local.blockedAuthors, searchRevision, local.blockedBooks, local.blockedTags, cacheGeneration)
                     val resultScroll = key(requestKey) { rememberLazyListState() }
                     if(section == 1 && localFilter.active) FilteredNovelList(c, requestKey, localFilter, local,
                         loadPage = { next, refresh -> c.filteredWebList(next, submitted, source, type, effectiveWebLevel, translate, sort, refresh) },

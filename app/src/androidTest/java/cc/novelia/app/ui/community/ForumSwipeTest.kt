@@ -64,6 +64,29 @@ class ForumSwipeTest {
 
     @Test fun articleSwipesPreserveScrollAndCommentDraftAcrossRecreation() = articleStateSurvives(false)
 
+    @Test fun categoryListsKeepTheirScrollAfterLeavingThePagerViewportAndRestoring() {
+        val restoration = StateRestorationTester(compose)
+        restoration.setContent {
+            NoveliaTheme("light") {
+                var category by rememberSaveable { mutableStateOf("announcements") }
+                ForumCategoryPager(categories, category, { category = it }, Modifier.size(360.dp, 480.dp)) { item ->
+                    LazyColumn(Modifier.fillMaxSize().testTag("list-${item.slug}")) {
+                        items(50) { index -> Text("${item.slug} 帖子 $index", Modifier.fillMaxWidth().height(64.dp)) }
+                    }
+                }
+            }
+        }
+        compose.onNodeWithTag("list-announcements").performScrollToIndex(20)
+        compose.onNodeWithTag("forum-category-feedback").performClick()
+        compose.onNodeWithTag("list-feedback").performScrollToIndex(30)
+        compose.onNodeWithTag("forum-category-announcements").performClick()
+        compose.onNodeWithText("announcements 帖子 20").assertIsDisplayed()
+        restoration.emulateSavedInstanceStateRestore()
+        compose.onNodeWithText("announcements 帖子 20").assertIsDisplayed()
+        compose.onNodeWithTag("forum-category-feedback").performClick()
+        compose.onNodeWithText("feedback 帖子 30").assertIsDisplayed()
+    }
+
     @Test fun articleSwipesAndTabClicksAlsoWorkInStaticMode() = articleStateSurvives(true)
 
     private fun articleStateSurvives(static: Boolean) {

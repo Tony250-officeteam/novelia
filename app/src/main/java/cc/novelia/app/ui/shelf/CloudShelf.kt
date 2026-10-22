@@ -67,10 +67,12 @@ import cc.novelia.app.ui.navigation.AppController
 
 @Composable private fun CloudShelfAccount(c: AppController, account: String, onOpenBook: (BookRef) -> Unit, selectedBookKey: String?, active: Boolean) {
     val local by c.store.state.collectAsStateWithLifecycle()
+    val cacheGeneration by c.store.cacheGeneration.collectAsStateWithLifecycle()
+    val binding = c.session.capture()
     var kind by rememberSaveable { mutableIntStateOf(0) }
     var folderId by rememberSaveable { mutableStateOf("") }
     var page by rememberSaveable { mutableIntStateOf(0) }
-    var version by remember { mutableIntStateOf(0) }
+    var version by rememberSaveable { mutableIntStateOf(0) }
     var create by remember { mutableStateOf(false) }
     var rename by remember { mutableStateOf<Folder?>(null) }
     var deleting by remember { mutableStateOf<Folder?>(null) }
@@ -101,6 +103,8 @@ import cc.novelia.app.ui.navigation.AppController
     // 行内重试或后台重试可能独立于本页菜单回调完成；
     // 成功后刷新远端结果，由 AsyncContent 保留当前视口。
     val refreshKey = listOf(version, if(bulkBusy) bulkRefreshAt else local.syncStatus[account]?.lastSuccessAt ?: 0L)
+    val foldersKey = listOf(binding, cacheGeneration)
+    val foldersCacheKey = listOf(foldersKey, refreshKey)
     LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { expanded = false }
     val focus = LocalFocusManager.current
     val collapseControls = { controlsExpanded = false; expanded = false; focus.clearFocus() }
@@ -110,7 +114,9 @@ import cc.novelia.app.ui.navigation.AppController
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val filterHeight = maxHeight * .55f
-        AsyncContent(account, load = { c.api.get<CloudFolders>("user/favored") }, refreshKey = refreshKey) { folders, refresh ->
+        AsyncContent(foldersKey, load = { c.api.get<CloudFolders>("user/favored") }, refreshKey = refreshKey,
+            initialResult = c.cloudFolders?.takeIf { it.first == foldersCacheKey }?.second,
+            onLoaded = { c.cloudFolders = foldersCacheKey to it }) { folders, refresh ->
             val realFolders = if (kind == 0) folders.favoredWeb else folders.favoredWenku
             val choices = cloudFolderChoices(realFolders)
             val current = choices.find { it.id == folderId } ?: choices.firstOrNull()
@@ -129,8 +135,10 @@ import cc.novelia.app.ui.navigation.AppController
             }
             val summary = activeFilters.joinToString(" · ")
             val searchSummary = if(kind == 0 && submitted.isNotBlank()) listOf("搜索：$submitted") else emptyList()
-            val requestKey = listOf(account, kind, current?.id, page, sort, if(kind == 0) filter else null)
-            var pageCount by remember(requestKey) { mutableStateOf<Int?>(null) }
+            val requestKey = listOf(binding, cacheGeneration, kind, current?.id, page, sort, if(kind == 0) filter else null)
+            val pageCacheKey = listOf(requestKey, refreshKey)
+            val cachedPage = c.cloudShelfPage?.takeIf { it.first == pageCacheKey }?.second
+            var pageCount by remember(requestKey) { mutableStateOf(cachedPage?.items?.size) }
             Column(Modifier.fillMaxSize()) {
                 ShelfControlsPanel(
                     (listOf(if(kind == 0) "网络小说" else "文库小说", current?.title ?: "收藏夹") + searchSummary + activeFilters +
@@ -188,7 +196,8 @@ import cc.novelia.app.ui.navigation.AppController
                     val listState = key(requestKey) { rememberLazyListState() }
                     AsyncContent(requestKey, refreshKey = refreshKey, modifier = Modifier.weight(1f), load = {
                         c.api.cloudFavorites(kind == 1, current.id, page, sort, filter)
-                    }, onLoaded = { pageCount = it.items.size }) { result, retry ->
+                    }, initialResult = cachedPage,
+                        onLoaded = { pageCount = it.items.size; c.cloudShelfPage = pageCacheKey to it }) { result, retry ->
                         LaunchedEffect(result.items, account) {
                             if(c.session.profile.value?.username != account) return@LaunchedEffect
                             c.store.update { it.withCloudReadingMetadata(result.items, account) }

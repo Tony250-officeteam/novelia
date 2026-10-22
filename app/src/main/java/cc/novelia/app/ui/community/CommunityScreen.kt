@@ -9,6 +9,8 @@ import cc.novelia.app.data.auth.SessionChangedException
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -16,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -42,11 +45,15 @@ import cc.novelia.app.ui.theme.motionClickable
 
 @Composable fun CommunityScreen(c: AppController) {
     ObserveForumLogin(c.session, c.forumSession)
-    AsyncContent("forum-categories", load = {
+    val cacheGeneration by c.store.cacheGeneration.collectAsStateWithLifecycle()
+    val source = c.forumSession.capture()
+    val categoriesKey = listOf("forum-categories", source.source, source.sourceRevision, cacheGeneration)
+    AsyncContent(categoriesKey, load = {
         // 分类是公开元数据。初次加载碰到自动登录时重取一次，保留已显示的社区导航状态。
         try { c.forumApi.categories() }
         catch(_: SessionChangedException) { c.forumApi.categories() }
-    }) { available, _ ->
+    }, initialResult = c.forumCategories?.takeIf { it.first == categoriesKey }?.second,
+        onLoaded = { c.forumCategories = categoriesKey to it }) { available, _ ->
         if(available.isEmpty()) EmptyState("论坛还没有分类", "测试站正在准备内容。", Icons.Outlined.Forum)
         else ForumCommunity(c, available)
     }
@@ -69,6 +76,7 @@ import cc.novelia.app.ui.theme.motionClickable
     val profile by c.forumSession.profile.collectAsStateWithLifecycle()
     val forumBinding = c.forumSession.capture()
     val blacklistRevision by c.app.forumBlacklistRevision.collectAsStateWithLifecycle()
+    val cacheGeneration by c.store.cacheGeneration.collectAsStateWithLifecycle()
     var hasUnreadStrikes by remember(forumBinding) { mutableStateOf(false) }
     var attentionRefresh by remember { mutableIntStateOf(0) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -126,23 +134,32 @@ import cc.novelia.app.ui.theme.motionClickable
                 val feedSource = if(active) source else 0
                 val feedTagId = selectedTagId.takeIf { active }
                 val settledSearch = rememberDebouncedQuery(search)
-                AsyncContent(listOf(pageCategory.slug, feedPage, settledSearch, feedSource, sort, feedTagId, forumBinding, profile?.role, blacklistRevision), load = {
+                val requestKey = listOf(pageCategory.slug, feedPage, settledSearch, feedSource, sort, feedTagId,
+                    forumBinding, profile?.role, blacklistRevision, cacheGeneration)
+                val scroll = key(requestKey) { rememberLazyListState() }
+                AsyncContent(requestKey, load = {
                     when(feedSource) { 1 -> c.forumApi.favorites(feedPage); 2 -> c.forumApi.myPosts(feedPage); else -> c.forumApi.posts(feedPage, pageCategory.slug, settledSearch, sort.visibleSort.apiValue, listOfNotNull(feedTagId)) }
-                }, revealContent = true) { result, _ ->
+                }, initialResult = c.forumPages[requestKey], onLoaded = {
+                    c.forumPages.put(requestKey, it)
+                    // 顶部刷新后显示新插入的帖子，不让旧首项的稳定 key 把视口推到下方。
+                    if(!scroll.canScrollBackward) scroll.requestScrollToItem(0)
+                },
+                    revealContent = true, pullToRefreshEnabled = active) { result, refresh ->
                     val articles = remember(result.items, settledSearch, feedSource, feedTagId, state.blockedUsers, available) {
                         result.items.filter { (feedSource == 0 || it.title.contains(settledSearch, true)) && !it.authorBlocked && it.authorUsername !in state.blockedUsers }
                             .map { it.article(available, if(feedSource == 0) feedTagId else null) }
                     }
-                    ArticleList(c, Page(result.pageCount(), articles), feedPage, { if(active) page = it })
+                    ArticleList(c, Page(result.pageCount(), articles), feedPage, { if(active) page = it }, scroll, refresh)
                 }
             }
         }
     }
     if(draftBoxOpen) AppSheet(onDismissRequest = { draftBoxOpen = false }) { ArticleDraftBox(c) { draftBoxOpen = false } }
 }
-@Composable private fun ArticleList(c: AppController, result: Page<Article>, page: Int, changePage: (Int) -> Unit) {
+@Composable private fun ArticleList(c: AppController, result: Page<Article>, page: Int, changePage: (Int) -> Unit,
+    scroll: LazyListState, refresh: () -> Unit) {
     val reducedMotion = appReducedMotion()
-    AppLazyColumn {
+    AppLazyColumn(state = scroll, modifier = Modifier.fillMaxSize(), listModifier = Modifier.testTag("forum-article-list")) {
         if(result.items.isEmpty()) item { EmptyState("这里暂时没有文章", "试试其他分类，或调整搜索词。", Icons.Outlined.Forum) }
         items(result.items, key = { it.id }, contentType = { "article" }) { article ->
             Column(if(reducedMotion) Modifier else Modifier.animateItem(fadeInSpec = tween(AppMotion.Quick), placementSpec = tween(AppMotion.Standard), fadeOutSpec = tween(AppMotion.Exit))) {
@@ -159,5 +176,6 @@ import cc.novelia.app.ui.theme.motionClickable
             }
         }
         item { PageControls(page, result.pageNumber, changePage) }
+        item { AppTextButton(onClick = refresh, Modifier.fillMaxWidth()) { Text("刷新帖子") } }
     }
 }

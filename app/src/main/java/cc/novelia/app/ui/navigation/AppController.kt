@@ -19,9 +19,14 @@ import cc.novelia.app.data.catalog.NovelFilterDetails
 import cc.novelia.app.data.catalog.NovelFilterMetadataCache
 import cc.novelia.app.data.catalog.NovelFilterPageCache
 import cc.novelia.app.data.cache.MetadataCache
+import cc.novelia.app.data.cache.WeightedMemoryCache
+import cc.novelia.app.data.community.ForumCategory
+import cc.novelia.app.data.community.ForumPage
+import cc.novelia.app.data.community.ForumPost
 import cc.novelia.app.data.markdown.MarkdownLinks
 import cc.novelia.app.data.model.BookCard
 import cc.novelia.app.data.model.BookRef
+import cc.novelia.app.data.model.CloudFolders
 import cc.novelia.app.data.model.Page
 import cc.novelia.app.data.model.Chapter
 import cc.novelia.app.data.model.toReaderChapter
@@ -74,7 +79,14 @@ class AppController(val app: NoveliaApplication, val nav: NavHostController, val
     private var celebration: Job? = null
     /** 分区切换或进入详情时，分别保留网络小说、文库小说最近一页的结果。 */
     internal val discoverPages = mutableMapOf<Int, Pair<Any, Page<BookCard>>>()
+    internal var discoverRecommendations: Pair<Any, Pair<List<BookCard>, List<BookCard>>>? = null
+    internal var rankPage: Pair<Any, Page<BookCard>>? = null
     internal var filteredDiscoverPage: Pair<Any, cc.novelia.app.data.catalog.FilteredNovelBatch>? = null
+    internal var cloudFolders: Pair<Any, CloudFolders>? = null
+    internal var cloudShelfPage: Pair<Any, Page<BookCard>>? = null
+    internal var forumCategories: Pair<Any, List<ForumCategory>>? = null
+    // 分类分页器可能预组合邻页，按完整请求条件缓存，避免邻页覆盖当前列表。
+    internal val forumPages = WeightedMemoryCache<Any, ForumPage<ForumPost>>(24, 24L) { 1L }
     private val filterMetadataCache = NovelFilterMetadataCache(metadataCache)
     private val filterPageCache = NovelFilterPageCache()
 

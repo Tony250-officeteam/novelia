@@ -95,6 +95,8 @@
 
 ## 验证重点
 
+已加载的社区列表在文章返回、发现与社区切换时直接恢复。普通屏幕在列表顶部继续下拉、松手即可刷新当前页；空列表也可下拉，刷新期间保留原内容并防止重复请求，失败显示重试入口。列表末尾的“刷新帖子”同时供点击和电子纸模式使用。
+
 优先检查草稿恢复、预览切换、发送期间继续输入、旧分类重选、回复缓存、账号切换、屏蔽和刷新失败。JVM 测试看 `ArticleDraftsTest`、`EditorStateRegressionTest`、`MarkdownLinkPasteTest` 及论坛合约测试；设备测试在 [ui/community](../../app/src/androidTest/java/cc/novelia/app/ui/community) 和 [ui/markdown](../../app/src/androidTest/java/cc/novelia/app/ui/markdown)。
 
 普通回归使用合成内容和模拟响应。真实发帖、修改、删除会改变远端内容，不属于默认只读联调。
