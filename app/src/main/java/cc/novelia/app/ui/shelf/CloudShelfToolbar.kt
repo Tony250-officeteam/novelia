@@ -29,7 +29,7 @@ import cc.novelia.app.ui.components.base.FilterPanelExpandIcon
     folderActions: @Composable ColumnScope.(close: () -> Unit) -> Unit,
 ) {
     ShelfToolbar(folders, current, onFolder, sort, onSort, listOf("update" to "更新时间", "create" to "收藏时间"),
-        filterCount, expanded, onToggleFilters, "cloud", folderActions)
+        filterCount, expanded, onToggleFilters, "cloud", folderActions = folderActions)
 }
 
 /** 本机与云端共用同一套收藏夹、排序和筛选入口。 */
@@ -37,6 +37,7 @@ import cc.novelia.app.ui.components.base.FilterPanelExpandIcon
     folders: List<Folder>, current: Folder?, onFolder: (String) -> Unit,
     sort: String, onSort: (String) -> Unit, sortOptions: List<Pair<String, String>>,
     filterCount: Int, expanded: Boolean, onToggleFilters: (() -> Unit)?, tagPrefix: String,
+    filterMenuContent: (@Composable ColumnScope.(close: () -> Unit) -> Unit)? = null,
     folderActions: @Composable ColumnScope.(close: () -> Unit) -> Unit,
 ) {
     var folderMenu by remember { mutableStateOf(false) }
@@ -75,16 +76,24 @@ import cc.novelia.app.ui.components.base.FilterPanelExpandIcon
             }
         }
         onToggleFilters?.let { toggle ->
-            AppTextButton(onClick = toggle, modifier = (if(fill) Modifier.weight(1f) else Modifier).heightIn(min = 48.dp).testTag("$tagPrefix-filter-toggle")
-                .semantics {
-                    contentDescription = if(expanded) "收起筛选" else "展开筛选"
-                    stateDescription = if(filterCount == 0) "未设置筛选条件" else "$filterCount 项筛选条件"
-                }, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                Icon(Icons.Outlined.Tune, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(4.dp))
-                Text(if(filterCount == 0) "筛选" else "筛选 $filterCount", Modifier.weight(1f, fill = false), style = MaterialTheme.typography.labelMedium)
-                Spacer(Modifier.width(4.dp))
-                Box(Modifier.size(18.dp).testTag("$tagPrefix-filter-arrow")) { FilterPanelExpandIcon(expanded) }
+            Box(if(fill) Modifier.weight(1f) else Modifier) {
+                AppTextButton(onClick = toggle, modifier = (if(fill) Modifier.fillMaxWidth() else Modifier).heightIn(min = 48.dp).testTag("$tagPrefix-filter-toggle")
+                    .semantics {
+                        contentDescription = if(filterMenuContent != null) "筛选" else if(expanded) "收起筛选" else "展开筛选"
+                        stateDescription = if(filterCount == 0) "未设置筛选条件" else "$filterCount 项筛选条件"
+                    }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                    Icon(Icons.Outlined.Tune, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(if(filterCount == 0) "筛选" else "筛选 $filterCount", Modifier.weight(1f, fill = false), style = MaterialTheme.typography.labelMedium)
+                    Spacer(Modifier.width(4.dp))
+                    Box(Modifier.size(18.dp).testTag("$tagPrefix-filter-arrow")) {
+                        if(filterMenuContent != null) Icon(Icons.Outlined.ArrowDropDown, null)
+                        else FilterPanelExpandIcon(expanded)
+                    }
+                }
+                if(filterMenuContent != null) AppDropdownMenu(expanded, toggle, Modifier.testTag("$tagPrefix-filter-menu")) {
+                    filterMenuContent { if(expanded) toggle() }
+                }
             }
         }
     }

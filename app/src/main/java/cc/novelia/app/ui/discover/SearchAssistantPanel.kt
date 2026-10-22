@@ -95,70 +95,75 @@ fun SearchAssistantPanel(
             FilterPanelVisibility(expanded) {
                 val panelHeight = (LocalConfiguration.current.screenHeightDp * (if(sheetMode) .72f else .43f))
                     .coerceIn(140f, if(sheetMode) 720f else 400f).dp
-                AppScrollColumn(
-                    modifier = Modifier.fillMaxWidth().heightIn(max = panelHeight).testTag("search-assistant-content"),
-                    state = panelScroll,
-                    contentModifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Text("选好条件后再应用，搜索框中的手工表达式会保留。", style = MaterialTheme.typography.bodySmall)
-                    Text("标签检索", style = MaterialTheme.typography.titleSmall)
-                    AppOutlinedButton(onClick = { browsingLibrary = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("assistant-open-library")) {
-                        Text("浏览全部标签（${entries.size}）")
-                    }
-                    OutlinedTextField(tagQuery, { tagQuery = it }, label = { Text("输入原文或中文标签") }, singleLine = true,
-                        isError = tagQuery.trim().length > KeywordCatalog.MAX_TEXT_LENGTH,
-                        supportingText = { if(tagQuery.trim().length > KeywordCatalog.MAX_TEXT_LENGTH) Text("标签最多 ${KeywordCatalog.MAX_TEXT_LENGTH} 字符，请缩短后添加。") },
-                        modifier = Modifier.fillMaxWidth().testTag("assistant-tag-input"))
-                    KeywordCategoryChips(listOf("全部") + categoryNames, category, { category = it }, Modifier.fillMaxWidth(), PaddingValues(vertical = 4.dp))
-                    Text("这里显示最多 12 个候选。标签库中可按分类批量包含或排除，返回后逐项调整。", style = MaterialTheme.typography.bodySmall)
-                    AppChipFlowRow() {
-                        candidates.forEach { entry ->
-                            AppActionChip(onClick = { editing = entry }, label = { Text(entry.label) },
-                                modifier = Modifier.testTag("assistant-candidate-${entry.original}"))
-                        }
-                    }
-                    if(manual != null) {
-                        AppOutlinedButton(onClick = { editing = KeywordEntry(manual) }, enabled = KeywordCatalog.canSearch(manual), modifier = Modifier.testTag("assistant-manual-tag")) {
-                            Text("添加原文：$manual")
-                        }
-                        if(manual.length <= KeywordCatalog.MAX_TEXT_LENGTH && !KeywordCatalog.canSearch(manual)) Text("原站标签不能包含空白或以 - 开头。可在下方用普通关键词搜索。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                    }
-                    if(candidates.isEmpty() && manual == null) Text("这个分类暂时没有匹配标签。可以切换分类或输入标签原文。", style = MaterialTheme.typography.bodySmall)
-                    if(includedTags.isNotEmpty() || excludedTags.isNotEmpty()) {
-                        Text("已选条件", style = MaterialTheme.typography.titleSmall)
-                        Text("包含标签需全部满足；命中任一排除标签即排除。点按可修改，× 可移除。", style = MaterialTheme.typography.bodySmall)
-                        AppChipFlowRow() {
-                            (includedTags.map { it to true } + excludedTags.map { it to false }).forEach { (original, include) ->
-                                val entry = lookup[original] ?: KeywordEntry(original)
-                                AppSelectionChip(true, onClick = { editing = entry }, label = { Text("${if(include) "包含" else "排除"}：${entry.label}") },
-                                    trailingIcon = { AppIconButton(onClick = { removeTag(original) }, modifier = Modifier.size(48.dp)) { Icon(Icons.Outlined.Close, "移除条件 $original", Modifier.size(16.dp)) } })
+                BoxWithConstraints(Modifier.fillMaxWidth().heightIn(max = panelHeight)) {
+                    val compactPreview = WindowInsets.isImeVisible || maxHeight < 320.dp
+                    Column {
+                        SearchAssistantPreview(query, generated, compact = compactPreview,
+                            hasError = invalidBounds || conflicts.isNotEmpty())
+                        AppScrollColumn(
+                            modifier = Modifier.fillMaxWidth().weight(1f, fill = false).testTag("search-assistant-content"),
+                            state = panelScroll,
+                            contentModifier = Modifier.padding(horizontal = 16.dp).padding(top = 12.dp, bottom = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Text("选好条件后再应用，搜索框中的手工表达式会保留。", style = MaterialTheme.typography.bodySmall)
+                            Text("标签检索", style = MaterialTheme.typography.titleSmall)
+                            AppOutlinedButton(onClick = { browsingLibrary = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("assistant-open-library")) {
+                                Text("浏览全部标签（${entries.size}）")
                             }
+                            OutlinedTextField(tagQuery, { tagQuery = it }, label = { Text("输入原文或中文标签") }, singleLine = true,
+                                isError = tagQuery.trim().length > KeywordCatalog.MAX_TEXT_LENGTH,
+                                supportingText = { if(tagQuery.trim().length > KeywordCatalog.MAX_TEXT_LENGTH) Text("标签最多 ${KeywordCatalog.MAX_TEXT_LENGTH} 字符，请缩短后添加。") },
+                                modifier = Modifier.fillMaxWidth().testTag("assistant-tag-input"))
+                            KeywordCategoryChips(listOf("全部") + categoryNames, category, { category = it }, Modifier.fillMaxWidth(), PaddingValues(vertical = 4.dp))
+                            Text("这里显示最多 12 个候选。标签库中可按分类批量包含或排除，返回后逐项调整。", style = MaterialTheme.typography.bodySmall)
+                            AppChipFlowRow() {
+                                candidates.forEach { entry ->
+                                    AppActionChip(onClick = { editing = entry }, label = { Text(entry.label) },
+                                        modifier = Modifier.testTag("assistant-candidate-${entry.original}"))
+                                }
+                            }
+                            if(manual != null) {
+                                AppOutlinedButton(onClick = { editing = KeywordEntry(manual) }, enabled = KeywordCatalog.canSearch(manual), modifier = Modifier.testTag("assistant-manual-tag")) {
+                                    Text("添加原文：$manual")
+                                }
+                                if(manual.length <= KeywordCatalog.MAX_TEXT_LENGTH && !KeywordCatalog.canSearch(manual)) Text("原站标签不能包含空白或以 - 开头。可在下方用普通关键词搜索。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                            }
+                            if(candidates.isEmpty() && manual == null) Text("这个分类暂时没有匹配标签。可以切换分类或输入标签原文。", style = MaterialTheme.typography.bodySmall)
+                            if(includedTags.isNotEmpty() || excludedTags.isNotEmpty()) {
+                                Text("已选条件", style = MaterialTheme.typography.titleSmall)
+                                Text("包含标签需全部满足；命中任一排除标签即排除。点按可修改，× 可移除。", style = MaterialTheme.typography.bodySmall)
+                                AppChipFlowRow() {
+                                    (includedTags.map { it to true } + excludedTags.map { it to false }).forEach { (original, include) ->
+                                        val entry = lookup[original] ?: KeywordEntry(original)
+                                        AppSelectionChip(true, onClick = { editing = entry }, label = { Text("${if(include) "包含" else "排除"}：${entry.label}") },
+                                            trailingIcon = { AppIconButton(onClick = { removeTag(original) }, modifier = Modifier.size(48.dp)) { Icon(Icons.Outlined.Close, "移除条件 $original", Modifier.size(16.dp)) } })
+                                    }
+                                }
+                            }
+                            HorizontalDivider()
+                            Text("书名、作者及关键词", style = MaterialTheme.typography.titleSmall)
+                            Text("多个词用空格分开；精确短语会作为一个完整条件。", style = MaterialTheme.typography.bodySmall)
+                            OutlinedTextField(all, { all = it }, label = { Text("全部包含") }, modifier = Modifier.fillMaxWidth().testTag("assistant-all"))
+                            OutlinedTextField(any, { any = it }, label = { Text("任意包含") }, modifier = Modifier.fillMaxWidth())
+                            OutlinedTextField(exact, { exact = it }, label = { Text("精确短语") }, modifier = Modifier.fillMaxWidth())
+                            OutlinedTextField(excluded, { excluded = it }, label = { Text("排除关键词") }, modifier = Modifier.fillMaxWidth())
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(minimum, { minimum = it.filter(Char::isDigit).take(6) }, label = { Text("章节数大于") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
+                                OutlinedTextField(maximum, { maximum = it.filter(Char::isDigit).take(6) }, label = { Text("章节数小于") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f), isError = invalidBounds)
+                            }
+                            if(invalidBounds) Text("上限需要大于下限；章节数不包含填写的边界值。", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                            if(query.isNotBlank()) {
+                                Text("追加后的搜索", style = MaterialTheme.typography.labelLarge)
+                                Text(SearchExpression.append(query, generated), style = MaterialTheme.typography.bodySmall)
+                            }
+                            if(conflicts.isNotEmpty()) Text("这些标签与搜索框中的包含／排除条件相反：${conflicts.joinToString("、")}。请调整原条件，或选择替换搜索框。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                            AppButton(onClick = { apply(SearchExpression.append(query, generated)) }, enabled = generated.isNotBlank() && !invalidBounds && conflicts.isEmpty(),
+                                modifier = Modifier.fillMaxWidth().testTag("assistant-append")) { Text(if(query.isBlank()) "应用并搜索" else "追加条件并搜索") }
+                            if(query.isNotBlank()) AppTextButton(onClick = { replacing = true }, enabled = generated.isNotBlank() && !invalidBounds, modifier = Modifier.fillMaxWidth()) { Text("用这些条件替换搜索框…") }
+                            AppTextButton(onClick = onHelp) { Text("查看原站搜索语法") }
                         }
                     }
-                    HorizontalDivider()
-                    Text("书名、作者及关键词", style = MaterialTheme.typography.titleSmall)
-                    Text("多个词用空格分开；精确短语会作为一个完整条件。", style = MaterialTheme.typography.bodySmall)
-                    OutlinedTextField(all, { all = it }, label = { Text("全部包含") }, modifier = Modifier.fillMaxWidth().testTag("assistant-all"))
-                    OutlinedTextField(any, { any = it }, label = { Text("任意包含") }, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(exact, { exact = it }, label = { Text("精确短语") }, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(excluded, { excluded = it }, label = { Text("排除关键词") }, modifier = Modifier.fillMaxWidth())
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(minimum, { minimum = it.filter(Char::isDigit).take(6) }, label = { Text("章节数大于") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
-                        OutlinedTextField(maximum, { maximum = it.filter(Char::isDigit).take(6) }, label = { Text("章节数小于") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f), isError = invalidBounds)
-                    }
-                    if(invalidBounds) Text("上限需要大于下限；章节数不包含填写的边界值。", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                    Text("生成的条件", style = MaterialTheme.typography.labelLarge)
-                    Text(generated.ifBlank { "填写后在这里预览" }, color = MaterialTheme.colorScheme.primary, modifier = Modifier.testTag("assistant-preview"))
-                    if(query.isNotBlank()) {
-                        Text("追加后的搜索", style = MaterialTheme.typography.labelLarge)
-                        Text(SearchExpression.append(query, generated), style = MaterialTheme.typography.bodySmall)
-                    }
-                    if(conflicts.isNotEmpty()) Text("这些标签与搜索框中的包含／排除条件相反：${conflicts.joinToString("、")}。请调整原条件，或选择替换搜索框。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                    AppButton(onClick = { apply(SearchExpression.append(query, generated)) }, enabled = generated.isNotBlank() && !invalidBounds && conflicts.isEmpty(),
-                        modifier = Modifier.fillMaxWidth().testTag("assistant-append")) { Text(if(query.isBlank()) "应用并搜索" else "追加条件并搜索") }
-                    if(query.isNotBlank()) AppTextButton(onClick = { replacing = true }, enabled = generated.isNotBlank() && !invalidBounds, modifier = Modifier.fillMaxWidth()) { Text("用这些条件替换搜索框…") }
-                    AppTextButton(onClick = onHelp) { Text("查看原站搜索语法") }
                 }
             }
         }

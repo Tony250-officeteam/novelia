@@ -202,20 +202,26 @@ import kotlinx.coroutines.sync.withPermit
     }
     if(filterOpen) AppSheet(onDismissRequest = { filterOpen = false }) {
         AppScrollColumn(contentModifier = Modifier.padding(bottom = 24.dp)) {
-            Text("筛选作品", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleLarge)
-            AppTextButton(onClick = ::resetFilters, Modifier.padding(horizontal = 12.dp)) { Text("重置全部筛选") }
+            FlowRow(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, bottom = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("筛选作品", Modifier.align(Alignment.CenterVertically), style = MaterialTheme.typography.titleLarge)
+                AppTextButton(onClick = ::resetFilters) { Text("重置全部筛选") }
+            }
             if(category == 1) {
                 WebSourceFilter(source) { source = it; setPage(1, 0) }
                 ChoiceRow("连载状态", listOf("全部", "连载中", "已完结", "短篇"), type) { type = it; setPage(1, 0) }
                 ChoiceRow("已有译文", listOf("全部", "GPT", "Sakura"), translate) { translate = it; setPage(1, 0) }
                 ChoiceRow("排序", listOf("更新", "点击", "相关"), sort) { sort = it; setPage(1, 0) }
                 if(profile?.canEdit == true) ChoiceRow("分级", listOf("全部", "一般向", "R18"), webLevel.coerceIn(0, 2)) { webLevel = it; setPage(1, 0) }
+                HorizontalDivider(Modifier.padding(horizontal = 20.dp, vertical = 12.dp))
                 CharacterCountFilterFields(localFilter.characters) { localFilter = localFilter.copy(characters = it); setPage(1, 0) }
-                Text("按作品提供的字数筛选；首次查找会补取字数，可继续加载更多结果。", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall)
+                Text("按作品提供的字数筛选；首次查找会补取字数，可继续加载更多结果。",
+                    Modifier.padding(horizontal = 20.dp).padding(bottom = 24.dp), style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else ChoiceRow("文库分类", if(profile?.canEdit == true) listOf("全部小说", "轻小说", "轻文学", "文学", "非小说", "R18男性向", "R18女性向") else listOf("全部小说", "轻小说", "轻文学", "文学", "非小说"), wenkuLevel.coerceIn(0, if(profile?.canEdit == true) 6 else 4)) { wenkuLevel = it; setPage(2, 0) }
-            if(category == 1) AppFilledTonalButton(onClick = { filterOpen = false; assistantOpen = true }, Modifier.padding(horizontal = 20.dp)) { Text("打开辅助搜索") }
-            Text("搜索框支持原站查询表达式。规则与示例可在站内使用教程中查看。", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodyMedium)
-            AppTextButton(onClick = { c.go("article/${ForumLinks.TUTORIAL_ID}"); filterOpen = false }, Modifier.padding(horizontal = 12.dp)) { Text("查看搜索语法") }
+            DiscoverFilterHelp(onAssistant = if(category == 1) ({ filterOpen = false; assistantOpen = true }) else null,
+                onSyntax = { c.go("article/${ForumLinks.TUTORIAL_ID}"); filterOpen = false })
+            Spacer(Modifier.height(24.dp))
             AppButton(onClick = { filterOpen = false }, Modifier.fillMaxWidth().padding(horizontal = 20.dp)) { Text("查看结果") }
         }
     }

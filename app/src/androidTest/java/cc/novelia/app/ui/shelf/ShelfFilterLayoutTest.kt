@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.test.platform.app.InstrumentationRegistry
 import cc.novelia.app.data.library.ShelfBookType
+import cc.novelia.app.data.catalog.CharacterCountFilter
 import cc.novelia.app.data.model.BookCard
 import cc.novelia.app.data.model.BookRef
 import cc.novelia.app.ui.components.book.BookRow
@@ -34,6 +35,7 @@ class ShelfFilterLayoutTest {
         var sort by mutableIntStateOf(0)
         var status by mutableStateOf("全部")
         var query by mutableStateOf("")
+        var characters by mutableStateOf(CharacterCountFilter())
         var expanded by mutableStateOf(false)
         var controlsExpanded by mutableStateOf(true)
         var scale by mutableFloatStateOf(1f)
@@ -53,7 +55,7 @@ class ShelfFilterLayoutTest {
                                 }
                                 LocalShelfFilters(files, type, { type = it }, listOf("默认收藏", "周末阅读"), folder, { folder = it },
                                     sort, { sort = it }, query, { query = it }, status, { status = it }, expanded, { expanded = it }, 300.dp,
-                                    { created = true }, {}, {}, controlsExpanded = controlsExpanded,
+                                    { created = true }, {}, {}, characters = characters, onCharacters = { characters = it }, controlsExpanded = controlsExpanded,
                                     onToggleControls = { controlsExpanded = !controlsExpanded; if(!controlsExpanded) expanded = false })
                                 ShelfBatchHeader("4 本 · 2 分卷", false, {}, "local")
                                 BookRow(BookCard(BookRef("wenku", "preview"), "旅人与森林来信", subtitle = "山川遥"), {})
@@ -75,18 +77,24 @@ class ShelfFilterLayoutTest {
         capture("ui-refinement-shelf-dark.png")
         compose.onNodeWithText("文库小说").performClick().assertIsSelected()
         compose.runOnIdle { assertEquals(ShelfBookType.Wenku, type) }
+        val bookTop = compose.onNodeWithText("旅人与森林来信").getUnclippedBoundsInRoot().top
         compose.onNodeWithTag("local-filter-toggle").performClick()
-        compose.onNodeWithContentDescription("收起筛选").assertIsDisplayed()
-        compose.onNodeWithText("搜索书名或作者").assertDoesNotExist()
-        compose.onNodeWithText("想读").performClick()
-        compose.onNodeWithTag("local-search-toggle").performClick()
         compose.onNodeWithText("阅读状态").assertIsDisplayed()
+        compose.onNodeWithTag("local-reading-status-全部").assertIsSelected()
+        assertEquals("下拉筛选不能挤动书籍列表", bookTop,
+            compose.onNodeWithText("旅人与森林来信").getUnclippedBoundsInRoot().top)
+        compose.onNodeWithText("搜索书名或作者").assertDoesNotExist()
+        capture("ui-refinement-shelf-filters.png", "local-filter-menu")
+        compose.onNodeWithTag("local-reading-status-想读").performClick()
+        compose.onNodeWithText("阅读状态").assertDoesNotExist()
+        compose.onNodeWithTag("local-filter-summary").assertTextContains("想读")
+        compose.onNodeWithTag("local-filter-toggle").performClick()
+        compose.onNodeWithTag("local-reading-status-想读").assertIsSelected().performClick()
+        compose.onNodeWithTag("local-search-toggle").performClick()
         assertSearchBelowFilters()
         compose.onNodeWithText("搜索书名或作者").performTextInput("夏木")
         compose.onNodeWithText("搜索书名或作者").performImeAction()
         capture("shelf-search-and-filters.png")
-        capture("ui-refinement-shelf-filters.png")
-        compose.onNodeWithText("完成").performClick()
         compose.onNodeWithTag("local-filter-summary").assertTextContains("想读")
         compose.onNodeWithTag("local-search-field").assertIsDisplayed()
         compose.onNodeWithTag("local-controls-collapse").performClick()
@@ -113,7 +121,7 @@ class ShelfFilterLayoutTest {
         compose.onNodeWithTag("local-filter-toggle").performClick()
         compose.onNodeWithText("重置筛选").performClick()
         compose.runOnIdle { assertEquals("夏木", query); assertEquals("全部", status); assertEquals("周末阅读", folder); assertEquals(2, sort) }
-        compose.onNodeWithText("完成").performClick()
+        compose.onNodeWithText("阅读状态").assertDoesNotExist()
         compose.onNodeWithTag("local-search-toggle").performClick()
         compose.onNodeWithTag("local-search-clear").performClick()
         compose.runOnIdle { assertEquals("", query) }
@@ -130,6 +138,17 @@ class ShelfFilterLayoutTest {
         assertTrue("搜索入口应位于收起按钮左侧", search.right <= arrow.left)
         compose.onNodeWithTag("local-filter-arrow", useUnmergedTree = true).assertIsDisplayed()
         capture("ui-refinement-local-large-font.png")
+        compose.runOnIdle { scale = 1f; files = false; type = ShelfBookType.Web }
+        compose.onNodeWithTag("local-filter-toggle").performClick()
+        compose.onNodeWithText("字数范围").performClick()
+        compose.onNodeWithTag("local-filter-menu").assertDoesNotExist()
+        compose.onNodeWithText("10 万以下").performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(99_999L, characters.maximum) }
+        compose.onNodeWithText("完成").performScrollTo().performClick()
+        compose.onNodeWithTag("local-filter-summary").assertTextContains("不超过 99999 字")
+        compose.onNodeWithTag("local-filter-toggle").performClick()
+        compose.onNodeWithText("重置筛选").performClick()
+        compose.runOnIdle { assertFalse(characters.active) }
     }
 
     private fun assertSearchBelowFilters() {
@@ -140,8 +159,8 @@ class ShelfFilterLayoutTest {
         assertTrue("搜索框应位于批量整理上方", search.bottom <= batch.top)
     }
 
-    private fun capture(name: String) {
-        val bitmap = compose.onNodeWithTag("shelf-controls-preview").captureToImage().asAndroidBitmap()
+    private fun capture(name: String, tag: String = "shelf-controls-preview") {
+        val bitmap = compose.onNodeWithTag(tag).captureToImage().asAndroidBitmap()
         File(InstrumentationRegistry.getInstrumentation().targetContext.getExternalFilesDir(null), name)
             .outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }

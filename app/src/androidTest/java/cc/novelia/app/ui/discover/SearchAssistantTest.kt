@@ -3,22 +3,28 @@ package cc.novelia.app.ui.discover
 import android.graphics.Bitmap
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Density
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import cc.novelia.app.data.catalog.KeywordCatalog
 import cc.novelia.app.data.catalog.KeywordEntry
 import cc.novelia.app.ui.components.base.AppLazyColumn
+import cc.novelia.app.ui.components.base.AppSheet
 import cc.novelia.app.ui.components.keywords.KeywordEditorDialog
 import cc.novelia.app.ui.components.base.rememberCloudFilterCollapse
 import cc.novelia.app.ui.theme.AppInteractionMode
+import cc.novelia.app.ui.theme.NoveliaTheme
 import java.io.File
 import org.junit.Assert.*
 import org.junit.Rule
@@ -28,6 +34,64 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class SearchAssistantTest {
     @get:Rule val compose = createComposeRule()
+
+    @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+    @Test fun sheetPreviewStaysVisibleWithScrollingKeyboardAndLargeText() {
+        var expanded by mutableStateOf(true)
+        var scale by mutableFloatStateOf(1f)
+        var imeVisible by mutableStateOf(false)
+        var applied = ""
+        val generated = (1..18).joinToString(" ") { "关键词$it" }
+        compose.setContent {
+            val assistantState = rememberSaveableStateHolder()
+            NoveliaTheme("dark") {
+                if(expanded) AppSheet(onDismissRequest = { expanded = false }) {
+                    val density = LocalDensity.current
+                    CompositionLocalProvider(LocalDensity provides Density(density.density, scale)) {
+                        val ime = WindowInsets.isImeVisible
+                        SideEffect { imeVisible = ime }
+                        assistantState.SaveableStateProvider("assistant") {
+                            SearchAssistantPanel("手工条件", KeywordCatalog.common, true, { expanded = it }, { applied = it },
+                                { _, _ -> }, {}, Modifier.width(320.dp), sheetMode = true)
+                        }
+                    }
+                }
+            }
+        }
+        val preview = compose.onNodeWithTag("assistant-preview-bar")
+        preview.assertIsDisplayed()
+        compose.onNodeWithTag("assistant-preview-details").assertIsNotEnabled()
+        val beforeScroll = preview.getUnclippedBoundsInRoot()
+        compose.onNodeWithTag("assistant-all").performScrollTo()
+        assertEquals("滚动表单不应移动预览条", beforeScroll, preview.getUnclippedBoundsInRoot())
+        compose.onNodeWithTag("assistant-all").performClick().performTextInput(generated)
+        compose.waitUntil(5_000) { imeVisible }
+        compose.onNodeWithTag("assistant-preview").assertIsDisplayed().assertTextEquals(generated)
+        val withKeyboard = preview.getUnclippedBoundsInRoot()
+        assertTrue("键盘弹起时预览应缩为一行", withKeyboard.bottom - withKeyboard.top < beforeScroll.bottom - beforeScroll.top)
+        screenshot("assistant-preview-keyboard")
+        compose.onNodeWithText("查看原站搜索语法").performScrollTo()
+        assertEquals(withKeyboard, preview.getUnclippedBoundsInRoot())
+        preview.assertIsDisplayed()
+        compose.onNodeWithTag("assistant-preview-details").performClick()
+        compose.onNodeWithTag("assistant-preview-full").assertTextEquals(generated)
+        compose.onNodeWithTag("assistant-preview-appended").performScrollTo().assertTextEquals("手工条件 $generated")
+        screenshot("assistant-preview-details")
+        compose.onNodeWithText("返回编辑").performClick()
+        compose.waitUntil(5_000) { !imeVisible }
+        compose.onNodeWithTag("assistant-preview").assertTextEquals(generated)
+        compose.runOnIdle { scale = 2f }
+        compose.onNodeWithTag("assistant-preview").assertIsDisplayed().assertTextEquals(generated)
+        val largePreview = preview.getUnclippedBoundsInRoot()
+        assertTrue("字体缩放应作用到弹窗内的预览条", largePreview.bottom - largePreview.top > beforeScroll.bottom - beforeScroll.top)
+        compose.onNodeWithText("查看原站搜索语法").performScrollTo()
+        val content = compose.onNodeWithTag("search-assistant-content").getUnclippedBoundsInRoot()
+        assertTrue("预览和滚动表单不能重叠", content.top >= preview.getUnclippedBoundsInRoot().bottom)
+        assertTrue("大字号下表单应仍有可用空间", content.bottom - content.top > 80.dp)
+        screenshot("assistant-preview-large-text")
+        compose.onNodeWithTag("assistant-append").performScrollTo().performClick()
+        compose.runOnIdle { assertEquals("手工条件 $generated", applied); assertFalse(expanded) }
+    }
 
     private fun screenshot(name: String) {
         compose.waitForIdle()
