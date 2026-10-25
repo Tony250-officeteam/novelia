@@ -161,6 +161,8 @@ import kotlinx.coroutines.sync.withPermit
                         onFilter = { filterOpen = true }, onAssistant = if(section == 1) ({ assistantOpen = true }) else null,
                         onRecent = { searchListOpen = "recent" }, onSaved = { searchListOpen = "saved" },
                         onSave = { presetToSave = currentPreset(section) }, onReset = ::resetFilters,
+                        wenkuGrid = if(section == 2) local.discoverWenkuGrid else null,
+                        onToggleLayout = { c.store.update { it.copy(discoverWenkuGrid = !it.discoverWenkuGrid) } },
                     )
                     if(section == 1 && keywordPersistenceError != null) Text(keywordPersistenceError!!, Modifier.padding(horizontal = 20.dp),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
@@ -184,13 +186,20 @@ import kotlinx.coroutines.sync.withPermit
                     }, initialResult = c.discoverPages[section]?.takeIf { it.first == requestKey }?.second,
                         onLoaded = { c.discoverPages[section] = requestKey to it }, revealContent = true) { result, refresh ->
                         val books = remember(result.items, local.blockedBooks, local.blockedTags, local.blockedAuthors) { result.items.filter { visibleBook(it, local) } }
-                        AppLazyColumn(state = resultScroll, onPageTurn = onPageTurn) {
-                            if(books.isEmpty()) item {
+                        val emptyContent: @Composable () -> Unit = {
+                            Column {
                                 EmptyState("没有找到匹配的作品", if(filterCount > 0) "先放宽筛选条件，搜索关键词会保留。" else "试试较短的关键词，或检查屏蔽条件。", Icons.Outlined.SearchOff,
                                     if(filterCount > 0) "放宽筛选" else if(submitted.isNotBlank()) "浏览全部作品" else "重新加载",
                                     { if(filterCount > 0) resetFilters() else if(submitted.isNotBlank()) { query = ""; submitted = ""; resetPages() } else refresh() }, sticker = MidoriSticker.Curious)
                                 if(local.blockedBooks.isNotEmpty() || local.blockedTags.isNotEmpty() || local.blockedAuthors.isNotEmpty()) AppTextButton(onClick = { c.go("blocked") }, Modifier.fillMaxWidth()) { Text("检查屏蔽条件") }
                             }
+                        }
+                        if(section == 2) key(requestKey) {
+                            DiscoverWenkuResults(books, local.discoverWenkuGrid, { c.book(it.ref) },
+                                keywordLabels = keywordLabels, onPageTurn = onPageTurn, emptyContent = emptyContent,
+                                footer = { PageControls(page, result.pageNumber) { setPage(section, it) } })
+                        } else AppLazyColumn(state = resultScroll, onPageTurn = onPageTurn) {
+                            if(books.isEmpty()) item { emptyContent() }
                             items(books, key = { it.ref.key }, contentType = { "book" }) {
                                 DiscoverBookRow(it, { c.book(it.ref) }, if(reducedMotion) Modifier else Modifier.animateItem(
                                     fadeInSpec = tween(AppMotion.Quick), placementSpec = tween(AppMotion.Standard), fadeOutSpec = tween(AppMotion.Exit)),

@@ -5,6 +5,7 @@ import cc.novelia.app.ui.components.base.AppIconButton
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ManageSearch
+import androidx.compose.material.icons.automirrored.outlined.ViewList
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -14,6 +15,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import cc.novelia.app.ui.components.base.AppDropdownMenu
@@ -33,6 +35,8 @@ import cc.novelia.app.ui.components.base.QuickFilterButton
     onSaved: () -> Unit,
     onSave: () -> Unit,
     onReset: () -> Unit,
+    wenkuGrid: Boolean? = null,
+    onToggleLayout: () -> Unit = {},
 ) {
     var moreOpen by remember { mutableStateOf(false) }
     val fontScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
@@ -47,6 +51,13 @@ import cc.novelia.app.ui.components.base.QuickFilterButton
                     overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
                 else filters.take(visibleCount).forEach { filter ->
                     QuickFilterButton(filter, Modifier.weight(1f), compact = true)
+                }
+                if(wenkuGrid != null) AppIconButton(onClick = onToggleLayout,
+                    modifier = Modifier.testTag("discover-layout-toggle").semantics {
+                        stateDescription = if(wenkuGrid) "网格布局" else "列表布局"
+                    }) {
+                    Icon(if(wenkuGrid) Icons.AutoMirrored.Outlined.ViewList else Icons.Outlined.GridView,
+                        if(wenkuGrid) "切换为列表布局" else "切换为网格布局")
                 }
                 if(compact) AppIconButton(onClick = onFilter) {
                     BadgedBox(badge = { if(filterCount > 0) Badge { Text(filterCount.toString()) } }) {

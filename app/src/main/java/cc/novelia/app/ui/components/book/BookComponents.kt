@@ -80,13 +80,13 @@ import cc.novelia.app.ui.components.keywords.KeywordEditorDialog
         categories = entries.categories, onSaveDetails = c.app.keywords::editEntry) }
 }
 
-@Composable fun BookCover(book: BookCard, modifier: Modifier = Modifier) {
+@Composable fun BookCover(book: BookCard, modifier: Modifier = Modifier, showFallbackTitle: Boolean = true) {
     val source = book.cover?.takeIf { it.isNotBlank() }
     var loaded by remember(source) { mutableStateOf(false) }
     Box(modifier.width(76.dp).height(104.dp).clip(appRoundedCornerShape(12.dp)).semantics {
         contentDescription = "${book.title} ${if(loaded) "封面" else "默认封面"}"
     }, contentAlignment = Alignment.Center) {
-        DefaultBookCover(book, Modifier.matchParentSize().clearAndSetSemantics {})
+        DefaultBookCover(book, Modifier.matchParentSize().clearAndSetSemantics {}, showTitle = showFallbackTitle)
         if(source != null) {
             val reducedMotion = appReducedMotion()
             var memoryCached by remember(source) { mutableStateOf(false) }

@@ -27,7 +27,7 @@ private val CoverStickers = listOf(MidoriSticker.Reading, MidoriSticker.Thinking
 private val CoverAccents = listOf(Color(0xFF537B57), Color(0xFF566EA0), Color(0xFF947055), Color(0xFF846697), Color(0xFF4D8085), Color(0xFF9E6876))
 
 @Composable
-internal fun DefaultBookCover(book: BookCard, modifier: Modifier = Modifier) {
+internal fun DefaultBookCover(book: BookCard, modifier: Modifier = Modifier, showTitle: Boolean = true) {
     // 贴纸沿用稳定变体；网络小说的颜色只由分级和连载状态决定。
     val variant = remember(book.ref.key) { stableCoverVariant(book.ref.key, CoverAccents.size) }
     val colors = MaterialTheme.colorScheme
@@ -45,10 +45,12 @@ internal fun DefaultBookCover(book: BookCard, modifier: Modifier = Modifier) {
             Text(if(book.ref.isLocal) "本地藏书" else if(book.ref.isWenku) "文库" else providers[book.ref.provider] ?: book.ref.provider,
                 fontSize = 7.sp, lineHeight = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = colors.onSurfaceVariant)
             MidoriIllustration(CoverStickers[variant % CoverStickers.size], Modifier.weight(1f).fillMaxWidth())
-            Spacer(Modifier.height(4.dp))
-            Text(book.title, fontSize = 10.sp, lineHeight = 13.sp, fontWeight = if(variant % 2 == 0) FontWeight.SemiBold else FontWeight.Medium,
-                maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
-                color = colors.onSurface)
+            if(showTitle) {
+                Spacer(Modifier.height(4.dp))
+                Text(book.title, fontSize = 10.sp, lineHeight = 13.sp, fontWeight = if(variant % 2 == 0) FontWeight.SemiBold else FontWeight.Medium,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
+                    color = colors.onSurface)
+            }
         }
     }
 }
