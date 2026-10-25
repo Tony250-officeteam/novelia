@@ -150,7 +150,10 @@ private enum class SettingsSection(val title: String, val summary: String) {
         item { ProfileMenuRow("导入普通设置", "从 Novelia 设置文件恢复偏好", Icons.Outlined.FileOpen, { importSettings.launch() }) }
         if(importSettings.showFallback) item { DocumentPickerFallback(importSettings) }
         item { ProfileMenuRow("备份与恢复阅读资料", "迁移书架、阅读进度、笔记和本地小说", Icons.Outlined.Backup, { c.go("backup") }) }
-        item { ProfileSummary("本地数据", "小说文件、书签和偏好保存在此设备。系统文件选择器负责导入和导出，无需申请全部存储空间权限。卸载应用会删除这些数据，请先导出需要保留的文件。") }
+        item { ProfileSummary("卸载时保留应用数据", if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+            "已启用系统保留选项。卸载时请在系统确认框中勾选“保留应用数据”；不勾选会删除应用数据。选项是否显示及默认勾选状态由系统决定。重新安装相同签名的应用可继续使用保留的数据；卸载前仍建议导出阅读资料备份。"
+            else "当前 Android 版本不支持卸载时保留应用数据。卸载会删除应用数据，请先导出阅读资料备份，重新安装后导入恢复。") }
+        item { ProfileSummary("本地数据", "小说文件、书签和偏好保存在此设备。系统文件选择器负责导入和导出，无需申请全部存储空间权限。换机或更换安装包签名前，请先导出需要保留的阅读资料。") }
         }
     } } }
     }

@@ -37,7 +37,7 @@ URI、文件名、压缩包条目和备份都视为待验证输入。保留实�
 
 系统 SAF 负责用户指定位置的导入导出。FileProvider 仅开放 downloads 和 exports，见 [file_paths.xml](../../app/src/main/res/xml/file_paths.xml)，不开放应用根目录。
 
-系统自动备份和设备迁移数据域已排除，不能承诺卸载后自动恢复。资料迁移使用应用提供的显式[备份](../data/backup-and-recovery.md)。
+系统自动备份和设备迁移数据域已排除。Manifest 默认启用 `hasFragileUserData`，允许 Android 10 及以上的系统卸载界面提供保留应用数据的选择；用户是否勾选和系统支持情况决定是否保留，不能承诺卸载后自动恢复。这不启用系统自动备份，也不采用 ZIP 的凭据排除规则；重新安装后会话是否有效仍取决于系统密钥和服务端。换机或更换签名的资料迁移使用应用提供的显式[备份](../data/backup-and-recovery.md)。
 
 ## 权限、入口和日志
 
