@@ -131,15 +131,15 @@ class ContinueReadingButtonTest {
 
     @Test fun buttonIsLimitedToMyShelfAndHidesDuringBatchManagementOrWithoutProgress() {
         showShelf()
-        compose.onNodeWithTag("local-controls-expand").performClick()
+        compose.onNodeWithTag("local-filter-toggle").performClick()
         compose.onNodeWithText("本地小说").performClick()
+        compose.onNodeWithTag("local-filter-apply").performClick()
         compose.onNodeWithText("没有符合条件的小说").assertIsDisplayed()
         compose.onNodeWithTag("shelf-continue-reading").assertIsDisplayed()
         compose.onNodeWithText("清除筛选").performClick()
-        compose.onNodeWithTag("local-controls-collapse").performClick()
-        compose.onNodeWithTag("local-batch-manage").performClick()
+        compose.onNodeWithTag("shelf-book-${recent.ref.key}").performTouchInput { longClick() }
         compose.onNodeWithTag("shelf-continue-reading").assertDoesNotExist()
-        compose.onNodeWithTag("local-batch-manage").performClick()
+        compose.onNodeWithTag("local-selection-done").performClick()
         compose.onNodeWithTag("shelf-continue-reading").assertIsDisplayed()
         compose.onNodeWithTag("shelf-tab-1").performClick()
         compose.onNodeWithTag("shelf-continue-reading").assertDoesNotExist()

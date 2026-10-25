@@ -21,8 +21,8 @@ import cc.novelia.app.data.model.Profile
 import cc.novelia.app.ui.account.ProfileAccountCard
 import cc.novelia.app.ui.book.BookReadingActions
 import cc.novelia.app.ui.shelf.BookFavoriteState
-import cc.novelia.app.ui.shelf.CloudShelfToolbar
-import cc.novelia.app.ui.shelf.CloudNovelKindSwitch
+import cc.novelia.app.ui.shelf.CompactCloudControls
+import cc.novelia.app.data.network.CloudWebFilter
 import cc.novelia.app.ui.theme.AppInteractionMode
 import cc.novelia.app.ui.theme.NoveliaTheme
 import org.junit.Assert.assertEquals
@@ -30,7 +30,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import java.io.File
-import cc.novelia.app.ui.components.base.CollapsibleCloudFilters
 
 class CompactLayoutTest {
     @get:Rule val compose = createComposeRule()
@@ -49,13 +48,10 @@ class CompactLayoutTest {
                     NoveliaTheme("dark") {
                         Surface(Modifier.requiredWidth(320.dp).testTag("compact-layout")) {
                             Column {
-                                CloudNovelKindSwitch(0) {}
-                                CloudShelfToolbar(folders, current, { id -> current = folders.first { it.id == id } },
-                                    sort, { sort = it }, 3, expanded, { expanded = !expanded }) { close ->
+                                CompactCloudControls(folders, current, { id -> current = folders.first { it.id == id } },
+                                    sort, { sort = it }, 0, CloudWebFilter(), { _, _ -> }, "", {}, {}, {},
+                                    expanded, { expanded = it }, "本页 20 本", 540.dp, true, true) { close ->
                                     DropdownMenuItem({ Text("新建收藏夹") }, { close(); created = true })
-                                }
-                                CollapsibleCloudFilters(expanded, { expanded = !expanded }, "3 项条件", 160.dp, showHeader = false) {
-                                    Text("完整筛选条件")
                                 }
                             }
                         }
@@ -66,14 +62,13 @@ class CompactLayoutTest {
         for(scale in listOf(1f, 1.5f, 2f)) {
             compose.runOnIdle { fontScale = scale }
             capture("cloud-toolbar-$scale")
-            val toolbar = compose.onNodeWithTag("cloud-toolbar").fetchSemanticsNode().boundsInRoot
+            val toolbar = compose.onNodeWithTag("compact-layout").fetchSemanticsNode().boundsInRoot
             listOf("cloud-folder-picker", "cloud-sort-picker", "cloud-filter-toggle").forEach { tag ->
                 val button = compose.onNodeWithTag(tag).assertIsDisplayed().assertHeightIsAtLeast(48.dp)
                 val bounds = button.fetchSemanticsNode().boundsInRoot
                 assertTrue("$tag stays inside toolbar", bounds.left >= toolbar.left && bounds.right <= toolbar.right)
             }
             assertTextFits("更新时间")
-            assertTextFits("筛选 3")
         }
         compose.onNodeWithTag("cloud-folder-picker").performClick()
         compose.onNodeWithText(folders[1].title).performClick()
@@ -82,14 +77,12 @@ class CompactLayoutTest {
         compose.onNodeWithText("收藏时间").performClick()
         compose.runOnIdle { assertEquals("create", sort) }
         compose.onNodeWithTag("cloud-filter-toggle").performClick()
-        compose.onNodeWithContentDescription("收起筛选").assertExists()
-        compose.onNodeWithText("完整筛选条件").assertIsDisplayed()
-        compose.onNodeWithText("筛选云端收藏").assertDoesNotExist()
+        compose.onNodeWithTag("cloud-filter-sheet").assertIsDisplayed()
+        compose.onNodeWithTag("cloud-filter-close").performClick()
         compose.onNodeWithTag("cloud-folder-picker").performClick()
         compose.onNodeWithText("新建收藏夹").performClick()
-        compose.runOnIdle { assertTrue(created); assertTrue(expanded) }
-        compose.onNodeWithTag("cloud-filter-toggle").performClick()
-        compose.onNodeWithText("完整筛选条件").assertDoesNotExist()
+        compose.runOnIdle { assertTrue(created); assertTrue(!expanded) }
+        compose.onNodeWithTag("cloud-filter-sheet").assertDoesNotExist()
     }
 
     @Test fun readingChapterWrapsInsideItsButtonAndSecondaryActionsStayIndependent() {

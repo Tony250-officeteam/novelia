@@ -144,7 +144,7 @@ class ShelfSwipeTest {
                 }
             }
             compose.onNodeWithTag("shelf-book-${web.ref.key}").assertIsDisplayed()
-            compose.onNodeWithTag("local-batch-manage").performClick()
+            compose.onNodeWithTag("shelf-book-${web.ref.key}").performTouchInput { longClick() }
             compose.onNodeWithText("全选").performClick()
             compose.onNodeWithText("已选 2 本").assertIsDisplayed()
             val pager = compose.onNodeWithTag("shelf-pager")
@@ -162,7 +162,7 @@ class ShelfSwipeTest {
             compose.onNode(hasTestTag("shelf-book-${local.ref.key}") and hasAnyAncestor(hasTestTag("shelf-page-1"))).assertIsDisplayed()
             compose.onNode(hasTestTag("shelf-book-${web.ref.key}") and hasAnyAncestor(hasTestTag("shelf-page-1"))).assertDoesNotExist()
             compose.onNodeWithText("已选 2 本").assertDoesNotExist()
-            compose.onNodeWithTag("local-batch-manage").performClick()
+            compose.onNodeWithTag("shelf-book-${local.ref.key}").performTouchInput { longClick() }
             compose.onNodeWithText("全选").performClick()
             compose.onNodeWithText("已选 1 本").assertIsDisplayed()
             pager.performTouchInput { swipeLeft() }

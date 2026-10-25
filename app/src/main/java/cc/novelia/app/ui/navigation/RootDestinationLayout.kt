@@ -9,8 +9,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.Role
@@ -23,6 +22,9 @@ import androidx.compose.ui.unit.dp
 import cc.novelia.app.ui.theme.AppMotion
 import cc.novelia.app.ui.theme.appReducedMotion
 import cc.novelia.app.ui.theme.LocalSquareCorners
+
+/** 根页面内的选择操作栏接管手机底部导航，不影响其他路由或平板侧栏。 */
+internal val LocalRootSelectionMode = staticCompositionLocalOf<(Boolean) -> Unit> { {} }
 
 /**
  * 导航栏属于根页面自身，与页面一起进退场。不能按当前路由在 NavHost 外增删导航栏：
@@ -38,6 +40,9 @@ internal fun RootDestinationLayout(
     onNavigationRailWidthChanged: (Dp) -> Unit = {},
     content: @Composable () -> Unit,
 ) {
+    var selectionMode by remember { mutableStateOf(false) }
+    val updateSelectionMode: (Boolean) -> Unit = remember { { selectionMode = it } }
+    val hideNavigation = hideBottomNavigation || selectionMode
     val tabs = listOf(
         Triple("shelf", "书架", Icons.Outlined.CollectionsBookmark),
         Triple("discover", "发现", Icons.Outlined.Explore),
@@ -48,12 +53,12 @@ internal fun RootDestinationLayout(
         val wide = maxWidth >= 600.dp
         val compactRail = maxHeight < 480.dp
         val density = LocalDensity.current
-        if(wide || hideBottomNavigation) SideEffect { onNavigationBarHeightChanged(0.dp) }
+        if(wide || hideNavigation) SideEffect { onNavigationBarHeightChanged(0.dp) }
         if(!wide) SideEffect { onNavigationRailWidthChanged(0.dp) }
         Scaffold(
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             bottomBar = {
-                if(!wide && !hideBottomNavigation) NavigationBar(
+                if(!wide && !hideNavigation) NavigationBar(
                     modifier = Modifier.onSizeChanged { size ->
                         onNavigationBarHeightChanged(with(density) { size.height.toDp() })
                     },
@@ -82,7 +87,9 @@ internal fun RootDestinationLayout(
                             label = if(compactRail) null else { { Text(label) } })
                     }
                 }
-                Box(Modifier.weight(1f).fillMaxHeight()) { content() }
+                Box(Modifier.weight(1f).fillMaxHeight()) {
+                    CompositionLocalProvider(LocalRootSelectionMode provides updateSelectionMode) { content() }
+                }
             }
         }
     }

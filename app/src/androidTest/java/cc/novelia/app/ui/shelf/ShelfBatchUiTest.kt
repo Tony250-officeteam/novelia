@@ -40,22 +40,24 @@ class ShelfBatchUiTest {
                 Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { padding -> Box(Modifier.padding(padding)) { ShelfScreen(controller) } }
             } } }
             compose.onNodeWithText("我的书架").assertIsDisplayed()
-            compose.onNodeWithTag("local-batch-manage").performClick()
-            compose.onNodeWithTag("shelf-book-${local.ref.key}").performClick()
-            compose.onNodeWithText("批量移出书架").performClick()
+            compose.onNodeWithTag("shelf-book-${local.ref.key}").performTouchInput { longClick() }
+            compose.onNodeWithTag("local-selection-more").performClick()
+            compose.onNodeWithText("移出书架").performClick()
             compose.onNodeWithText("取消").performClick()
             compose.runOnIdle { assertEquals(2, app.store.state.value.books.size) }
-            compose.onNodeWithText("批量移出书架").performClick()
+            compose.onNodeWithTag("local-selection-more").performClick()
+            compose.onNodeWithText("移出书架").performClick()
             compose.onNodeWithText("移出书架").performClick()
             compose.waitUntil(5_000) { app.store.state.value.books.none { it.book.ref == local.ref } }
             compose.runOnIdle { assertEquals(web.ref, app.store.state.value.books.single().book.ref) }
             compose.onNodeWithText("撤销").performClick()
             compose.waitUntil(5_000) { app.store.state.value.books.size == 2 }
             compose.onNodeWithText("本地文件").performClick()
-            compose.onNodeWithTag("local-batch-manage").performClick()
+            compose.onNodeWithTag("shelf-book-${local.ref.key}").performTouchInput { longClick() }
             compose.onNodeWithText("全选").performClick()
             compose.onNodeWithText("批量移出书架").assertDoesNotExist()
-            compose.onNodeWithText("批量删除").performClick()
+            compose.onNodeWithTag("local-selection-more").performClick()
+            compose.onNodeWithText("删除本地副本").performClick()
             compose.onNodeWithText("删除本地副本").assertIsDisplayed()
             saveTestScreenshot("problem-shelf-batch-delete.png")
             compose.onNodeWithText("删除本地副本").performClick()

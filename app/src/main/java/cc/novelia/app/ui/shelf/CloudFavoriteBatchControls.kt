@@ -1,45 +1,17 @@
 @file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
 package cc.novelia.app.ui.shelf
 
-import cc.novelia.app.ui.components.base.AppTextButton
-import cc.novelia.app.ui.components.base.AppFilledTonalButton
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import cc.novelia.app.ui.components.base.AppScrollColumn
 import cc.novelia.app.ui.components.base.AppSheet
 import cc.novelia.app.ui.components.base.MenuRow
 import cc.novelia.app.ui.components.base.TextPrompt
-
-@Composable internal fun CloudFavoriteBatchControls(
-    managing: Boolean, selectedCount: Int, pageCount: Int, allOnPageSelected: Boolean,
-    busy: Boolean, progress: Int, onManage: () -> Unit, onSelectPage: () -> Unit,
-    onClear: () -> Unit, onLocal: () -> Unit, onRemove: () -> Unit,
-    showHeader: Boolean = true,
-) {
-    Column {
-        if(showHeader) ShelfBatchHeader(if(managing) "已选 $selectedCount 本" else "本页 $pageCount 本",
-            managing, onManage, "cloud", manageEnabled = !busy && (managing || pageCount > 0))
-        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).testTag("cloud-batch-controls")) {
-            if(managing) {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AppTextButton(onClick = onSelectPage, enabled = !busy && pageCount > 0) { Text(if(allOnPageSelected) "取消本页全选" else "全选本页") }
-                    AppTextButton(onClick = onClear, enabled = !busy && selectedCount > 0) { Text("清空选择") }
-                    AppFilledTonalButton(onClick = onLocal, enabled = !busy && selectedCount > 0) { Text("加入本地收藏") }
-                    AppTextButton(onClick = onRemove, enabled = !busy && selectedCount > 0,
-                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("取消云端收藏") }
-                }
-                Text(if(busy) "正在处理 $progress / $selectedCount 本…" else "支持跨页选择；切换收藏夹或筛选会清空选择。",
-                    Modifier.padding(bottom = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-    }
-}
 
 @Composable internal fun CloudFavoriteLocalSheet(folders: List<String>, count: Int, onDismiss: () -> Unit, onSave: (String) -> Unit) {
     var create by remember { mutableStateOf(false) }

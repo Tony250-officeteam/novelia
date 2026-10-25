@@ -1,6 +1,6 @@
 package cc.novelia.app.ui.shelf
 
-import androidx.compose.foundation.layout.requiredWidth
+import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -18,7 +18,7 @@ class CloudFavoriteBatchUiTest {
     @get:Rule val compose = createComposeRule()
 
     @Test fun localFolderChoiceAndBusyBatchActionsStayReachableAtNarrowWidths() {
-        var managing by mutableStateOf(false)
+        var managing by mutableStateOf(true)
         var selected by mutableIntStateOf(0)
         var busy by mutableStateOf(false)
         var local by mutableStateOf(false)
@@ -29,9 +29,11 @@ class CloudFavoriteBatchUiTest {
             CompositionLocalProvider(LocalDensity provides Density(density.density, scale)) {
                 NoveliaTheme("dark") {
                     Surface(Modifier.requiredWidth(320.dp)) {
-                        CloudFavoriteBatchControls(managing, selected, 2, selected == 2, busy, 1,
-                            { managing = !managing }, { selected = if(selected == 2) 0 else 2 }, { selected = 0 },
-                            { local = true }, { busy = true })
+                        Column {
+                            ShelfSelectionHeader(selected, !busy, 48.dp, { selected = if(selected == 2) 0 else 2 },
+                                { managing = false }, "cloud", if(selected == 2) "取消本页全选" else "全选本页")
+                            if(managing) CloudSelectionActions(selected, busy, 1, { local = true }, { busy = true }, { selected = 0 })
+                        }
                     }
                     if(local) CloudFavoriteLocalSheet(listOf("默认收藏", "周末阅读"), selected, { local = false }) {
                         savedFolder = it; local = false
@@ -39,19 +41,19 @@ class CloudFavoriteBatchUiTest {
                 }
             }
         }
-        compose.onNodeWithText("批量整理").performClick()
-        compose.onNodeWithText("加入本地收藏").assertIsNotEnabled()
-        compose.onNodeWithText("取消云端收藏").assertIsNotEnabled()
+        compose.onNodeWithText("批量整理").assertDoesNotExist()
+        compose.onNodeWithContentDescription("加入本地收藏").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("取消云端收藏").assertIsNotEnabled()
         compose.onNodeWithText("全选本页").performClick()
         compose.onNodeWithText("已选 2 本").assertIsDisplayed()
-        compose.onNodeWithText("加入本地收藏").performClick()
+        compose.onNodeWithContentDescription("加入本地收藏").performClick()
         compose.onNodeWithText("周末阅读").performClick()
         compose.runOnIdle { assertEquals("周末阅读", savedFolder); scale = 2f }
-        compose.onNodeWithText("加入本地收藏").assertIsDisplayed().assertIsEnabled()
-        compose.onNodeWithText("取消云端收藏").assertIsDisplayed().performClick()
+        compose.onNodeWithContentDescription("加入本地收藏").assertIsDisplayed().assertIsEnabled()
+        compose.onNodeWithContentDescription("取消云端收藏").assertIsDisplayed().performClick()
         compose.onNodeWithText("正在处理 1 / 2 本…").assertIsDisplayed()
-        listOf("完成", "取消本页全选", "清空选择", "加入本地收藏", "取消云端收藏").forEach {
-            compose.onNodeWithText(it).assertIsNotEnabled()
+        listOf("cloud-selection-done", "cloud-select-all", "cloud-selection-clear", "cloud-selection-local", "cloud-selection-remove").forEach {
+            compose.onNodeWithTag(it).assertIsNotEnabled()
         }
     }
 }

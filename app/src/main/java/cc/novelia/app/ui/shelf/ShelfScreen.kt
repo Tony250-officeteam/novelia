@@ -2,23 +2,16 @@
 package cc.novelia.app.ui.shelf
 
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import cc.novelia.app.ui.components.base.AppCheckbox
 import cc.novelia.app.ui.components.base.AppButton
 import cc.novelia.app.ui.components.base.AppTextButton
-import cc.novelia.app.ui.components.base.AppFilledTonalButton
 import cc.novelia.app.ui.components.base.AppIconButton
 import cc.novelia.app.data.updates.withAcknowledgedBookUpdates
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -38,6 +31,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.onLongClick
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -82,6 +77,7 @@ import cc.novelia.app.ui.components.base.rememberDebouncedQuery
 import cc.novelia.app.ui.feedback.MidoriSticker
 import cc.novelia.app.ui.markdown.format
 import cc.novelia.app.ui.navigation.AppController
+import cc.novelia.app.ui.navigation.LocalRootSelectionMode
 import cc.novelia.app.ui.theme.AppMotion
 import cc.novelia.app.ui.theme.appReducedMotion
 import kotlinx.coroutines.Dispatchers
@@ -109,6 +105,13 @@ import kotlinx.coroutines.withContext
     var batchDeletion by remember { mutableStateOf<Set<BookRef>?>(null) }
     var permanentDeletion by remember { mutableStateOf<Set<BookRef>?>(null) }
     var batchWorking by remember { mutableStateOf(false) }
+    var cloudManaging by remember { mutableStateOf(false) }
+    var cloudBusy by remember { mutableStateOf(false) }
+    val updateCloudSelection: (Boolean, Boolean) -> Unit = remember { { selecting, busy -> cloudManaging = selecting; cloudBusy = busy } }
+    val rootSelectionMode = LocalRootSelectionMode.current
+    SideEffect { rootSelectionMode((managing && tab < 2) || (cloudManaging && tab == 2)) }
+    DisposableEffect(rootSelectionMode) { onDispose { rootSelectionMode(false) } }
+    BackHandler(enabled = managing) { if(!batchWorking) { managing = false; selection = emptySet() } }
     var renamingDocument by remember { mutableStateOf<SavedBook?>(null) }
     var importedKeys by rememberSaveable { mutableStateOf(emptyList<String>()) }
     val sourceExporter = rememberLauncherForActivityResult(CreateBookDocument()) { uri ->
@@ -168,13 +171,13 @@ import kotlinx.coroutines.withContext
         AppIconButton(onClick = { c.go("history") }) { Icon(Icons.Outlined.History, "阅读历史") }
         AppIconButton(onClick = importLocalFiles, enabled = !importing) { Icon(Icons.Outlined.FileOpen, "导入本地文件") }
     }) { padding ->
-        ShelfPager(tab, { tab = it }, enabled = !batchWorking, modifier = Modifier.padding(padding),
+        ShelfPager(tab, { tab = it }, enabled = !batchWorking && !cloudBusy, modifier = Modifier.padding(padding),
             controls = {
                 DocumentPickerFallback(importer, enabled = !importing)
                 DocumentImportPanel(importModel, c::book)
             }) { page ->
             val active = page == tab
-            if(page == 2) CloudShelf(c, onOpenBook, selectedBookKey, active = active) else {
+            if(page == 2) CloudShelf(c, onOpenBook, selectedBookKey, active = active, onSelectionStateChanged = updateCloudSelection) else {
                 // 邻页预组合时按自己的分区生成列表，不能复用当前选中页的数据或修剪其批量选择。
                 val baseGroups = if(page == 0) shelfGroups else remember(state.books, state.positions, folder, settledQuery, sort, fileType, readingStatus) {
                     state.shelfGroups(localOnly = true, folder = folder, query = settledQuery, sort = sort,
@@ -209,11 +212,13 @@ import kotlinx.coroutines.withContext
                 val pagingControlsHeight by remember {
                     derivedStateOf { (listHeight - listState.layoutInfo.viewportSize.height).coerceAtLeast(0) }
                 }
-                var controlsExpanded by rememberSaveable { mutableStateOf(false) }
                 var filtersExpanded by remember { mutableStateOf(false) }
                 LaunchedEffect(active) { if(!active) filtersExpanded = false }
                 val focus = LocalFocusManager.current
-                val collapseControls = { controlsExpanded = false; filtersExpanded = false; focus.clearFocus() }
+                var controlsHeight by remember { mutableIntStateOf(0) }
+                val dragSelection = rememberShelfDragSelection(listState, rows.map { it.saved.book.ref.key }.filter { it in selectableKeys },
+                    selection, pageManaging, active && !batchWorking,
+                    onBegin = { managing = true; filtersExpanded = false; focus.clearFocus() }, onSelection = { selection = it.intersect(selectableKeys) })
                 val canReorder = active && page == 0 && !managing && query.isBlank() && settledQuery.isBlank() && readingStatus == "全部"
                 val reorder = rememberVolumeReorderState(listState, rows, canReorder) { parent, keys ->
                     c.store.update { current ->
@@ -224,58 +229,27 @@ import kotlinx.coroutines.withContext
                     }
                 }
                 BoxWithConstraints(Modifier.fillMaxSize()) {
-                    val filterHeight = maxHeight * .55f
+                    val filterHeight = maxHeight * .9f
                     Column(Modifier.fillMaxSize()) {
                         LocalShelfFilters(page == 1, if(page == 0) bookType else fileType, { if(page == 0) bookType = it else fileType = it },
                             state.folders, folder, { folder = it }, sort, { sort = it }, query, { query = it }, readingStatus, { readingStatus = it },
                             filtersExpanded, { filtersExpanded = it }, filterHeight, { createFolder = true }, { renameFolder = true }, { deleteFolder = true },
                             characters = characterFilter, onCharacters = { characterFilter = it },
-                            controlsExpanded = controlsExpanded, onToggleControls = { if(controlsExpanded) collapseControls() else controlsExpanded = true }) {
+                            countLabel = "${groups.size} 本" + groups.sumOf { it.volumes.size }.takeIf { it > 0 }?.let { " · $it 分卷" }.orEmpty(),
+                            visible = !pageManaging, active = active, modifier = Modifier.onSizeChanged { controlsHeight = it.height }) {
                             if(filterCharacters) Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
                                 val unknown = countCandidates.count { characterCounts.count(it) == null }
                                 Text(if(characterCounts.loading) "正在补全字数…" else "$unknown 本字数未知", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                                 if(unknown > 0) AppTextButton(onClick = { characterCounts.loadMore(countCandidates) }, enabled = !characterCounts.loading) { Text("补全字数") }
                             }
                         }
-                        val volumeCount = groups.sumOf { it.volumes.size }
-                        ShelfBatchHeader(if(pageManaging) "已选 ${selection.size} 本" else "${groups.size} 本" + if(volumeCount > 0) " · $volumeCount 分卷" else "",
-                            pageManaging, { managing = !managing; selection = emptySet(); filtersExpanded = false; focus.clearFocus() }, "local",
-                            manageEnabled = active && !batchWorking && (managing || books.isNotEmpty()))
-                        ShelfControlReveal(pageManaging) { FlowRow(Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            AppTextButton(onClick = { selection = books.map { it.book.ref.key }.toSet() }, enabled = managing && !batchWorking) { Text("全选") }
-                            AppFilledTonalButton(onClick = { bulkMove = true }, enabled = managing && !batchWorking && selection.isNotEmpty()) { Text("移动 ${selection.size} 本") }
-                            AppFilledTonalButton(onClick = { bulkStatus = true }, enabled = managing && !batchWorking && selection.isNotEmpty()) { Text("修改阅读状态") }
-                            AppTextButton(onClick = {
-                                val refs = books.filter { it.book.ref.key in selection }.map { it.book.ref }.toSet()
-                                if(page == 1) batchDeletion = refs.filter { it.isLocal }.toSet() else batchRemoval = refs
-                            }, enabled = managing && !batchWorking && selection.isNotEmpty()) {
-                                Text(if(batchWorking) "正在处理…" else if(page == 1) "批量删除" else "批量移出书架")
-                            }
-                            AppTextButton(onClick = {
-                                permanentDeletion = books.filter { it.book.ref.key in selection }.map { it.book.ref }.toSet()
-                            }, enabled = managing && !batchWorking && selection.isNotEmpty()) { Text("彻底删除") }
-                            AppTextButton(onClick = {
-                                val chosen = downloadableSelection
-                                queueingDownloads = true
-                                c.action {
-                                    try {
-                                        val invalidFilenameChars = Regex("[\\/\\\\:*?\"<>|]")
-                                        val reader = state.reader
-                                        chosen.forEach { saved ->
-                                            val id = java.util.UUID.randomUUID().toString()
-                                            val filename = saved.book.title.replace(invalidFilenameChars, "_").take(120) + ".epub"
-                                            val url = c.api.downloadUrl(saved.book.ref, null, reader.mode, reader.engines, reader.parallel, "epub", filename)
-                                            cc.novelia.app.files.DownloadWorker.enqueue(c.app, DownloadEntry(id, saved.book.title, "$id-$filename", url, sourceBook = saved.book.ref, sourceCard = saved.book))
-                                        }
-                                        c.message("已开始下载 ${chosen.size} 本网络小说", actionLabel = "查看下载") { c.go("downloads", replaceTop = true) }
-                                        managing = false
-                                        selection = emptySet()
-                                    } finally { queueingDownloads = false }
-                                }
-                            }, enabled = managing && !batchWorking && !queueingDownloads && downloadableSelection.isNotEmpty()) { Text(if(queueingDownloads) "正在加入…" else "下载") }
-                        } }
+                        if(pageManaging) ShelfSelectionHeader(selection.size, !batchWorking,
+                            // 长按尚未松手时保持列表起点，避免进入选择模式后书籍从手指下跳开。
+                            if(dragSelection.dragging) with(density) { controlsHeight.toDp() } else 48.dp,
+                            onSelectAll = { selection = books.map { it.book.ref.key }.toSet() },
+                            onFinish = { managing = false; selection = emptySet() })
                         AppLazyColumn(modifier = Modifier.weight(1f).onSizeChanged { listHeight = it.height },
-                            listModifier = Modifier.testTag("shelf-books"), state = listState,
+                            listModifier = Modifier.testTag("shelf-books").shelfDragSelection(dragSelection, active && !batchWorking), state = listState,
                             contentPadding = PaddingValues(bottom = if(continueBook != null)
                                 with(density) { continueHeight.toDp() } + 32.dp else 0.dp)) {
                             if(importedBooks.isNotEmpty()) item(key = "imported-books", contentType = "hero") {
@@ -315,11 +289,24 @@ import kotlinx.coroutines.withContext
                                     },
                                     animationSpec = tween(if(reducedMotion) 0 else AppMotion.Release), label = "shelf-selection"
                                 )
-                                val itemMotion = if(reducedMotion) Modifier else Modifier.animateItem(fadeInSpec = tween(AppMotion.Release), placementSpec = if(dragging) null else tween(AppMotion.Standard), fadeOutSpec = tween(AppMotion.Exit))
                                 val selectable = saved.book.ref.key in selectableKeys
-                                val onOpen = { if(pageManaging) { if(selectable) selection = if(saved.book.ref.key in selection) selection - saved.book.ref.key else selection + saved.book.ref.key } else { filtersExpanded = false; onOpenBook(saved.book.ref) } }
+                                // 没有移动的长按松手也可能到达子项 clickable；由长按手势处理，不能再切换一次勾选。
+                                val onOpen = {
+                                    if(!dragSelection.dragging) {
+                                        if(pageManaging) { if(selectable && !batchWorking) selection = if(saved.book.ref.key in selection) selection - saved.book.ref.key else selection + saved.book.ref.key }
+                                        else { filtersExpanded = false; onOpenBook(saved.book.ref) }
+                                    }
+                                }
+                                val itemMotion = (if(reducedMotion) Modifier else Modifier.animateItem(fadeInSpec = tween(AppMotion.Release), placementSpec = if(dragging || dragSelection.dragging) null else tween(AppMotion.Standard), fadeOutSpec = tween(AppMotion.Exit)))
+                                    .semantics {
+                                        onClick(if(pageManaging) "切换选择" else "打开书籍") { onOpen(); true }
+                                        if(pageManaging) stateDescription = if(saved.book.ref.key in selection) "已选择" else "未选择"
+                                        if(active && selectable && !batchWorking) onLongClick("选择${saved.book.title}") { dragSelection.selectOne(saved.book.ref.key); true }
+                                    }
                                 val trailing: @Composable () -> Unit = {
-                                    if(pageManaging) AppCheckbox(saved.book.ref.key in selection, { checked -> selection = if(checked) selection + saved.book.ref.key else selection - saved.book.ref.key }, enabled = selectable) else AppIconButton(onClick = { selected = saved }) { Icon(Icons.Outlined.MoreVert, "管理 ${saved.book.title}") }
+                                    if(pageManaging) AppCheckbox(saved.book.ref.key in selection, { checked ->
+                                        if(!dragSelection.dragging) selection = if(checked) selection + saved.book.ref.key else selection - saved.book.ref.key
+                                    }, enabled = selectable && !batchWorking) else AppIconButton(onClick = { if(!dragSelection.dragging) selected = saved }) { Icon(Icons.Outlined.MoreVert, "管理 ${saved.book.title}") }
                                 }
                                 if(row.parent != null) MountedVolumeRow(saved, state.positions[saved.book.ref.key],
                                     itemMotion.zIndex(if(dragging) 1f else 0f).graphicsLayer {
@@ -334,13 +321,13 @@ import kotlinx.coroutines.withContext
                                     BookRow(if(filterCharacters) saved.book.copy(totalCharacters = characterCounts.count(saved.book)) else saved.book, onOpen,
                                         status = bookRowStatus(saved.book, saved, state.positions[saved.book.ref.key], state.bookUpdates[saved.book.ref.key], profile?.username),
                                         showCharacterCount = filterCharacters, compactMetadata = page == 0, trailing = trailing)
-                                    if(saved.book.ref.isWenku && !pageManaging) {
+                                    if(saved.book.ref.isWenku && (!pageManaging || dragSelection.dragging)) {
                                         val rotation by animateFloatAsState(if(row.expanded) 180f else 0f, tween(if(reducedMotion) 0 else AppMotion.Standard), label = "wenku-volume-disclosure")
                                         AppTextButton(onClick = {
                                             if(row.volumeCount == 0) volumeManager = saved
                                             else if(filteringVolumes) collapsedSearchGroups = if(row.expanded) collapsedSearchGroups + saved.book.ref.key else collapsedSearchGroups - saved.book.ref.key
                                             else c.store.update { it.copy(books = it.books.map { book -> if(book.book.ref == saved.book.ref) book.copy(volumesExpanded = !row.expanded) else book }) }
-                                        }, modifier = Modifier.padding(start = 20.dp).testTag("wenku-volumes-${saved.book.ref.key}")
+                                        }, enabled = !pageManaging, modifier = Modifier.padding(start = 20.dp).testTag("wenku-volumes-${saved.book.ref.key}")
                                             .semantics { stateDescription = if(row.volumeCount == 0) "未挂载分卷" else if(row.expanded) "已展开" else "已折叠" }) {
                                             Icon(if(row.volumeCount == 0) Icons.Outlined.Add else Icons.Outlined.ExpandMore, null,
                                                 if(row.volumeCount == 0) Modifier else Modifier.rotate(rotation))
@@ -351,6 +338,30 @@ import kotlinx.coroutines.withContext
                                 }
                             }
                         }
+                        if(pageManaging) ShelfSelectionActions(selection.size, page == 1, batchWorking, queueingDownloads,
+                            canDownload = downloadableSelection.isNotEmpty(), onMove = { bulkMove = true }, onStatus = { bulkStatus = true },
+                            onDownload = {
+                                val chosen = downloadableSelection
+                                queueingDownloads = true
+                                c.action {
+                                    try {
+                                        val invalidFilenameChars = Regex("[\\/\\\\:*?\"<>|]")
+                                        val reader = state.reader
+                                        chosen.forEach { saved ->
+                                            val id = java.util.UUID.randomUUID().toString()
+                                            val filename = saved.book.title.replace(invalidFilenameChars, "_").take(120) + ".epub"
+                                            val url = c.api.downloadUrl(saved.book.ref, null, reader.mode, reader.engines, reader.parallel, "epub", filename)
+                                            cc.novelia.app.files.DownloadWorker.enqueue(c.app, DownloadEntry(id, saved.book.title, "$id-$filename", url, sourceBook = saved.book.ref, sourceCard = saved.book))
+                                        }
+                                        c.message("已开始下载 ${chosen.size} 本网络小说", actionLabel = "查看下载") { c.go("downloads", replaceTop = true) }
+                                        managing = false; selection = emptySet()
+                                    } finally { queueingDownloads = false }
+                                }
+                            }, onRemove = {
+                                val refs = books.filter { it.book.ref.key in selection }.map { it.book.ref }.toSet()
+                                if(page == 1) batchDeletion = refs.filter { it.isLocal }.toSet() else batchRemoval = refs
+                            }, onDelete = { permanentDeletion = books.filter { it.book.ref.key in selection }.map { it.book.ref }.toSet() },
+                            onSingleBook = books.singleOrNull { it.book.ref.key in selection }?.let { single -> { selected = single } })
                     }
                     if(continueBook != null) {
                         val position = state.positions.getValue(continueBook.book.ref.key)
@@ -468,13 +479,4 @@ import kotlinx.coroutines.withContext
     deletingDocument?.let { saved -> ConfirmDialog("删除「${saved.book.title}」？", "将删除导入副本及对应下载任务和文件，并移出书架。导入前的原文件和阅读记录保留。此操作无法撤销。", { deletingDocument = null }, confirmLabel = "删除本地小说") {
         c.action("本地小说及对应下载已删除") { deleteBookFiles(c.app, setOf(saved.book.ref), eraseReadingData = false) }
     } }
-}
-
-@Composable private fun ShelfControlReveal(visible: Boolean, content: @Composable () -> Unit) {
-    val reducedMotion = appReducedMotion()
-    AnimatedVisibility(
-        visible = visible,
-        enter = if(reducedMotion) EnterTransition.None else fadeIn(tween(AppMotion.Quick)) + expandVertically(tween(AppMotion.Standard), expandFrom = Alignment.Top),
-        exit = if(reducedMotion) ExitTransition.None else fadeOut(tween(AppMotion.Exit)) + shrinkVertically(tween(AppMotion.Release), shrinkTowards = Alignment.Top)
-    ) { content() }
 }
