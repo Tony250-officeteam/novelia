@@ -34,6 +34,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -99,6 +100,8 @@ import kotlinx.coroutines.withContext
     var localExportOriginal by rememberSaveable { mutableStateOf(true) }
     var queueingDownloads by remember { mutableStateOf(false) }
     var volumeManager by remember { mutableStateOf<SavedBook?>(null) }
+    var volumeSheetKey by rememberSaveable { mutableStateOf<String?>(null) }
+    var volumeMatches by remember { mutableStateOf<Set<String>?>(null) }
     var volumeParentPicker by remember { mutableStateOf<SavedBook?>(null) }
     var deletingDocument by remember { mutableStateOf<SavedBook?>(null) }
     var batchRemoval by remember { mutableStateOf<Set<BookRef>?>(null) }
@@ -164,7 +167,43 @@ import kotlinx.coroutines.withContext
     val countCandidates = if(bookType == ShelfBookType.Web) shelfGroups.map { it.saved.book } else emptyList()
     // 字数结果留在分页器外，离开书架分区后返回时无需重新补全。
     val characterCounts = rememberShelfCharacterCounts(c, countCandidates, tab == 0 && filterShelfCharacters, profile?.username, cacheGeneration)
-    LaunchedEffect(tab) { managing = false; selection = emptySet() }
+    LaunchedEffect(tab) { managing = false; selection = emptySet(); volumeSheetKey = null }
+    val allVolumeGroups = remember(state.books) {
+        state.shelfGroups(localOnly = false, folder = "全部", query = "", sort = 2).associateBy { it.saved.book.ref.key }
+    }
+    val commitVolumeOrder: (String, List<String>) -> Unit = { parent, keys ->
+        c.store.update { current ->
+            val siblings = current.books.filter { it.book.ref.isLocal && it.parentWenkuKey == parent }.map { it.book.ref.key }
+            if(current.books.none { it.book.ref.key == parent && it.book.ref.isWenku }) current
+            else current.withWenkuVolumeOrder(parent, keys.filter { it in siblings } + siblings.filter { it !in keys })
+        }
+    }
+    val selectionActions: @Composable (Boolean, List<SavedBook>) -> Unit = { localFiles, chosen ->
+        val downloadable = chosen.filter { !it.book.ref.isLocal && !it.book.ref.isWenku }
+        ShelfSelectionActions(chosen.size, localFiles, batchWorking, queueingDownloads,
+            canDownload = downloadable.isNotEmpty(), onMove = { bulkMove = true }, onStatus = { bulkStatus = true },
+            onDownload = {
+                queueingDownloads = true
+                c.action {
+                    try {
+                        val invalidFilenameChars = Regex("[\\/\\\\:*?\"<>|]")
+                        val reader = state.reader
+                        downloadable.forEach { saved ->
+                            val id = java.util.UUID.randomUUID().toString()
+                            val filename = saved.book.title.replace(invalidFilenameChars, "_").take(120) + ".epub"
+                            val url = c.api.downloadUrl(saved.book.ref, null, reader.mode, reader.engines, reader.parallel, "epub", filename)
+                            cc.novelia.app.files.DownloadWorker.enqueue(c.app, DownloadEntry(id, saved.book.title, "$id-$filename", url, sourceBook = saved.book.ref, sourceCard = saved.book))
+                        }
+                        c.message("已开始下载 ${downloadable.size} 本网络小说", actionLabel = "查看下载") { c.go("downloads", replaceTop = true) }
+                        managing = false; selection = emptySet()
+                    } finally { queueingDownloads = false }
+                }
+            }, onRemove = {
+                val refs = chosen.map { it.book.ref }.toSet()
+                if(localFiles) batchDeletion = refs.filter { it.isLocal }.toSet() else batchRemoval = refs
+            }, onDelete = { permanentDeletion = chosen.map { it.book.ref }.toSet() },
+            onSingleBook = chosen.singleOrNull()?.let { single -> { selected = single } })
+    }
     Screen("书架", actions = {
         AppIconButton(onClick = { c.go("updates") }) { Icon(Icons.Outlined.NewReleases, "查看书架更新") }
         AppIconButton(onClick = { UpdateWorker.checkNow(c.app); c.message("已开始检查书架更新") }) { Icon(Icons.Outlined.Sync, "检查更新") }
@@ -177,7 +216,7 @@ import kotlinx.coroutines.withContext
                 DocumentImportPanel(importModel, c::book)
             }) { page ->
             val active = page == tab
-            if(page == 2) CloudShelf(c, onOpenBook, selectedBookKey, active = active, onSelectionStateChanged = updateCloudSelection) else {
+            if(page == 2) CloudShelf(c, onOpenBook, selectedBookKey, active = active, onSelectionStateChanged = updateCloudSelection) else BoxWithConstraints(Modifier.fillMaxSize()) {
                 // 邻页预组合时按自己的分区生成列表，不能复用当前选中页的数据或修剪其批量选择。
                 val baseGroups = if(page == 0) shelfGroups else remember(state.books, state.positions, folder, settledQuery, sort, fileType, readingStatus) {
                     state.shelfGroups(localOnly = true, folder = folder, query = settledQuery, sort = sort,
@@ -186,8 +225,13 @@ import kotlinx.coroutines.withContext
                 val filterCharacters = page == 0 && filterShelfCharacters
                 val groups = if(filterCharacters) baseGroups.filter { characterFilter.matches(characterCounts.count(it.saved.book)) } else baseGroups
                 val books = remember(groups) { groups.flatMap { (if(it.matchesFilters) listOf(it.saved) else emptyList()) + it.volumes } }
-                val selectableKeys = remember(books) { books.map { it.book.ref.key }.toSet() }
-                LaunchedEffect(active, selectableKeys) { if(active) selection = selection.intersect(selectableKeys) }
+                val grid = if(page == 0) state.shelfGrid else state.localFilesGrid
+                val columns = shelfGridColumns(maxWidth)
+                val gridRows = remember(groups, columns) { groups.chunked(columns) }
+                val selectableKeys = remember(books, groups, grid) {
+                    (if(grid) groups.filter { it.matchesFilters }.map { it.saved } else books).map { it.book.ref.key }.toSet()
+                }
+                LaunchedEffect(active, selectableKeys, volumeSheetKey) { if(active && volumeSheetKey == null) selection = selection.intersect(selectableKeys) }
                 val rows = remember(groups, collapsedSearchGroups, filteringVolumes) {
                     buildList {
                         groups.forEach { group ->
@@ -197,10 +241,12 @@ import kotlinx.coroutines.withContext
                         }
                     }
                 }
-                val downloadableSelection = remember(books, selection) { books.filter { it.book.ref.key in selection && !it.book.ref.isLocal && !it.book.ref.isWenku } }
-                val pageManaging = active && managing
-                val listState = rememberLazyListState()
-                val continueBook = recent?.takeIf { page == 0 && active && !pageManaging }
+                val pageManaging = active && managing && volumeSheetKey == null
+                val layout = rememberShelfLayoutState(grid, rows.map { it.saved.book.ref.key }, groups.map { it.saved.book.ref.key }, columns,
+                    parents = rows.mapNotNull { row -> row.parent?.let { row.saved.book.ref.key to it.book.ref.key } }.toMap(),
+                    leadingItems = if(importedBooks.isNotEmpty()) 1 else 0)
+                val listState = layout.current(grid)
+                val continueBook = recent?.takeIf { page == 0 && active && !pageManaging && volumeSheetKey == null }
                 val density = LocalDensity.current
                 val collapseThreshold = with(density) { 48.dp.roundToPx() }
                 val continueExpanded by remember(listState, collapseThreshold) {
@@ -216,18 +262,15 @@ import kotlinx.coroutines.withContext
                 LaunchedEffect(active) { if(!active) filtersExpanded = false }
                 val focus = LocalFocusManager.current
                 var controlsHeight by remember { mutableIntStateOf(0) }
-                val dragSelection = rememberShelfDragSelection(listState, rows.map { it.saved.book.ref.key }.filter { it in selectableKeys },
-                    selection, pageManaging, active && !batchWorking,
-                    onBegin = { managing = true; filtersExpanded = false; focus.clearFocus() }, onSelection = { selection = it.intersect(selectableKeys) })
-                val canReorder = active && page == 0 && !managing && query.isBlank() && settledQuery.isBlank() && readingStatus == "全部"
-                val reorder = rememberVolumeReorderState(listState, rows, canReorder) { parent, keys ->
-                    c.store.update { current ->
-                        // 下载可能在拖动期间完成，新挂载的分卷保留在顺序末尾。
-                        val siblings = current.books.filter { it.book.ref.isLocal && it.parentWenkuKey == parent }.map { it.book.ref.key }
-                        if(current.books.none { it.book.ref.key == parent && it.book.ref.isWenku }) current
-                        else current.withWenkuVolumeOrder(parent, keys.filter { it in siblings } + siblings.filter { it !in keys })
-                    }
-                }
+                val gridHit = rememberShelfGridHitTest(layout.grid, gridRows.map { groupRow -> groupRow.map { it.saved.book.ref.key } }, columns)
+                val selectionEnabled = active && !batchWorking && volumeSheetKey == null
+                val dragSelection = rememberShelfDragSelection(listState,
+                    (if(grid) groups.map { it.saved.book.ref.key } else rows.map { it.saved.book.ref.key }).filter { it in selectableKeys },
+                    selection, pageManaging, selectionEnabled,
+                    onBegin = { managing = true; filtersExpanded = false; focus.clearFocus() }, onSelection = { selection = it.intersect(selectableKeys) },
+                    hitTest = if(grid) gridHit else null)
+                val canReorder = active && !grid && page == 0 && !managing && query.isBlank() && settledQuery.isBlank() && readingStatus == "全部"
+                val reorder = rememberVolumeReorderState(layout.list, rows, canReorder, commitVolumeOrder)
                 BoxWithConstraints(Modifier.fillMaxSize()) {
                     val filterHeight = maxHeight * .9f
                     Column(Modifier.fillMaxSize()) {
@@ -236,7 +279,8 @@ import kotlinx.coroutines.withContext
                             filtersExpanded, { filtersExpanded = it }, filterHeight, { createFolder = true }, { renameFolder = true }, { deleteFolder = true },
                             characters = characterFilter, onCharacters = { characterFilter = it },
                             countLabel = "${groups.size} 本" + groups.sumOf { it.volumes.size }.takeIf { it > 0 }?.let { " · $it 分卷" }.orEmpty(),
-                            visible = !pageManaging, active = active, modifier = Modifier.onSizeChanged { controlsHeight = it.height }) {
+                            visible = !pageManaging, active = active, modifier = Modifier.onSizeChanged { controlsHeight = it.height },
+                            grid = grid, onToggleLayout = { c.store.update { if(page == 0) it.copy(shelfGrid = !it.shelfGrid) else it.copy(localFilesGrid = !it.localFilesGrid) } }) {
                             if(filterCharacters) Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
                                 val unknown = countCandidates.count { characterCounts.count(it) == null }
                                 Text(if(characterCounts.loading) "正在补全字数…" else "$unknown 本字数未知", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
@@ -246,11 +290,14 @@ import kotlinx.coroutines.withContext
                         if(pageManaging) ShelfSelectionHeader(selection.size, !batchWorking,
                             // 长按尚未松手时保持列表起点，避免进入选择模式后书籍从手指下跳开。
                             if(dragSelection.dragging) with(density) { controlsHeight.toDp() } else 48.dp,
-                            onSelectAll = { selection = books.map { it.book.ref.key }.toSet() },
+                            onSelectAll = { selection = selectableKeys },
                             onFinish = { managing = false; selection = emptySet() })
-                        AppLazyColumn(modifier = Modifier.weight(1f).onSizeChanged { listHeight = it.height },
-                            listModifier = Modifier.testTag("shelf-books").shelfDragSelection(dragSelection, active && !batchWorking), state = listState,
-                            contentPadding = PaddingValues(bottom = if(continueBook != null)
+                        ShelfLayoutTransition(grid, Modifier.weight(1f)) { showGrid ->
+                        AppLazyColumn(modifier = Modifier.fillMaxSize().onSizeChanged { if(showGrid == grid) listHeight = it.height },
+                            listModifier = Modifier.testTag(if(showGrid) "shelf-books-grid" else "shelf-books")
+                                .shelfDragSelection(dragSelection, selectionEnabled && showGrid == grid), state = layout.current(showGrid),
+                            verticalArrangement = Arrangement.spacedBy(if(showGrid) 14.dp else 0.dp),
+                            contentPadding = PaddingValues(top = if(showGrid) 8.dp else 0.dp, bottom = if(continueBook != null)
                                 with(density) { continueHeight.toDp() } + 32.dp else 0.dp)) {
                             if(importedBooks.isNotEmpty()) item(key = "imported-books", contentType = "hero") {
                                 Card(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
@@ -272,7 +319,48 @@ import kotlinx.coroutines.withContext
                                     EmptyState("没有符合条件的小说", if(filterCharacters) "可以放宽字数范围、包含未知作品或继续补全字数。" else "试试其他书名、作者、类型或阅读状态。", action = "清除筛选", onAction = { query = ""; folder = "全部"; readingStatus = "全部"; bookType = ShelfBookType.All; fileType = ShelfBookType.All; characterFilter = CharacterCountFilter() })
                                 else EmptyState(if(page == 1) "把故事装进口袋" else "书架等你来填满", if(page == 1) "支持 EPUB、TXT 和 SRT，导入后即可离线阅读。" else "去发现喜欢的小说，或导入你已有的文件。", action = if(page == 1) "导入文件" else "去发现", onAction = { if(page == 1) importLocalFiles() else c.go("discover") }, sticker = MidoriSticker.Welcome)
                             }
-                            items(reorder.rows, key = { it.saved.book.ref.key }, contentType = { if(it.parent == null) "book" else "volume" }) { row ->
+                            if(showGrid) items(gridRows, key = { it.first().saved.book.ref.key }, contentType = { "cover-row" }) { groupRow ->
+                                Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    groupRow.forEach { group -> key(group.saved.book.ref.key) {
+                                        val saved = group.saved
+                                        val key = saved.book.ref.key
+                                        val volumes = allVolumeGroups[key]?.volumes.orEmpty()
+                                        val recentVolume = volumes.filter { it.book.ref.key in state.positions }.maxByOrNull { state.positions.getValue(it.book.ref.key).updatedAt }
+                                        val status = bookRowStatus(saved.book, saved, state.positions[key], state.bookUpdates[key], profile?.username)
+                                        val progress = recentVolume?.let { volume ->
+                                            val label = bookRowStatus(volume.book, volume, state.positions[volume.book.ref.key], null).progressLabel
+                                            shelfVolumeProgressLabel(saved.book.title, volume.book.title, label)
+                                        }
+                                        val open = { if(!dragSelection.dragging && !batchWorking) {
+                                            if(pageManaging) { if(key in selectableKeys) selection = if(key in selection) selection - key else selection + key }
+                                            else { filtersExpanded = false; onOpenBook(saved.book.ref) }
+                                        } }
+                                        LaunchedEffect(active, saved.book.ref, profile?.username, state.syncStatus[profile?.username]?.lastSuccessAt) {
+                                            if(active && profile != null && !saved.book.ref.isLocal && !saved.book.ref.isWenku) {
+                                                try { c.refreshCloudReading(saved.book) }
+                                                catch(e: kotlinx.coroutines.CancellationException) { throw e }
+                                                catch(_: Exception) { /* 离线保留已有进度。 */ }
+                                            }
+                                        }
+                                        ShelfCoverCard(saved.book, status, open, Modifier.weight(1f).testTag("shelf-book-$key").semantics {
+                                            this.selected = if(pageManaging) key in selection else key == selectedBookKey
+                                            onClick(if(pageManaging) "切换选择" else "打开书籍") { open(); true }
+                                            if(selectionEnabled && key in selectableKeys) onLongClick("选择${saved.book.title}") { dragSelection.selectOne(key); true }
+                                        }, selecting = pageManaging, selected = if(pageManaging) key in selection else key == selectedBookKey,
+                                            enabled = !batchWorking && (!pageManaging || key in selectableKeys), pinned = saved.pinned,
+                                            volumeLabel = if(saved.book.ref.isWenku) {
+                                                if(filteringVolumes && group.volumes.size != volumes.size) "匹配 ${group.volumes.size} / ${volumes.size} 卷"
+                                                else if(volumes.isEmpty()) "挂载分卷" else "本地 ${volumes.size} 卷"
+                                            } else null,
+                                            onVolumes = if(saved.book.ref.isWenku) ({
+                                                focus.clearFocus()
+                                                managing = false; selection = emptySet(); volumeMatches = if(filteringVolumes) group.volumes.map { it.book.ref.key }.toSet() else null
+                                                volumeSheetKey = key
+                                            }) else null, progressLabel = progress)
+                                    } }
+                                    repeat(columns - groupRow.size) { Spacer(Modifier.weight(1f)) }
+                                }
+                            } else items(reorder.rows, key = { it.saved.book.ref.key }, contentType = { if(it.parent == null) "book" else "volume" }) { row ->
                                 val saved = row.saved
                                 LaunchedEffect(active, saved.book.ref, profile?.username, state.syncStatus[profile?.username]?.lastSuccessAt) {
                                     if(!active || profile == null || saved.book.ref.isLocal || saved.book.ref.isWenku) return@LaunchedEffect
@@ -338,30 +426,8 @@ import kotlinx.coroutines.withContext
                                 }
                             }
                         }
-                        if(pageManaging) ShelfSelectionActions(selection.size, page == 1, batchWorking, queueingDownloads,
-                            canDownload = downloadableSelection.isNotEmpty(), onMove = { bulkMove = true }, onStatus = { bulkStatus = true },
-                            onDownload = {
-                                val chosen = downloadableSelection
-                                queueingDownloads = true
-                                c.action {
-                                    try {
-                                        val invalidFilenameChars = Regex("[\\/\\\\:*?\"<>|]")
-                                        val reader = state.reader
-                                        chosen.forEach { saved ->
-                                            val id = java.util.UUID.randomUUID().toString()
-                                            val filename = saved.book.title.replace(invalidFilenameChars, "_").take(120) + ".epub"
-                                            val url = c.api.downloadUrl(saved.book.ref, null, reader.mode, reader.engines, reader.parallel, "epub", filename)
-                                            cc.novelia.app.files.DownloadWorker.enqueue(c.app, DownloadEntry(id, saved.book.title, "$id-$filename", url, sourceBook = saved.book.ref, sourceCard = saved.book))
-                                        }
-                                        c.message("已开始下载 ${chosen.size} 本网络小说", actionLabel = "查看下载") { c.go("downloads", replaceTop = true) }
-                                        managing = false; selection = emptySet()
-                                    } finally { queueingDownloads = false }
-                                }
-                            }, onRemove = {
-                                val refs = books.filter { it.book.ref.key in selection }.map { it.book.ref }.toSet()
-                                if(page == 1) batchDeletion = refs.filter { it.isLocal }.toSet() else batchRemoval = refs
-                            }, onDelete = { permanentDeletion = books.filter { it.book.ref.key in selection }.map { it.book.ref }.toSet() },
-                            onSingleBook = books.singleOrNull { it.book.ref.key in selection }?.let { single -> { selected = single } })
+                        }
+                        if(pageManaging) selectionActions(page == 1, books.filter { it.book.ref.key in selection })
                     }
                     if(continueBook != null) {
                         val position = state.positions.getValue(continueBook.book.ref.key)
@@ -375,6 +441,18 @@ import kotlinx.coroutines.withContext
             }
         }
     }
+    val volumeGroup = volumeSheetKey?.let { allVolumeGroups[it] }
+    LaunchedEffect(volumeSheetKey, volumeGroup == null) {
+        if(volumeSheetKey != null && volumeGroup == null) { volumeSheetKey = null; managing = false; selection = emptySet() }
+    }
+    if(volumeGroup != null) WenkuVolumesSheet(volumeGroup.saved, volumeGroup.volumes, state.positions, volumeMatches,
+        managing, selection, batchWorking, { managing = it }, { selection = it },
+        onDismiss = { volumeSheetKey = null; managing = false; selection = emptySet() },
+        onOpen = { volumeSheetKey = null; onOpenBook(it.book.ref) },
+        onContinue = { saved, position -> volumeSheetKey = null; c.read(saved.book.ref, position.chapterId) },
+        onDetails = { volumeSheetKey = null; onOpenBook(volumeGroup.saved.book.ref) },
+        onMount = { volumeManager = volumeGroup.saved }, onManageBook = { selected = it }, onReorder = commitVolumeOrder,
+        actions = { selectionActions(false, volumeGroup.volumes.filter { it.book.ref.key in selection }) })
     if(createFolder) TextPrompt("新建收藏夹", "名称", onDismiss = { createFolder = false }) { name -> c.action { c.store.update { it.createShelfFolder(name.trim()) } } }
     if(renameFolder) TextPrompt("重命名收藏夹", "名称", folder, { renameFolder = false }) { name -> val previous = folder; c.action { c.store.update { it.renameShelfFolder(previous, name.trim()) }; folder = name.trim() } }
     if(deleteFolder) ConfirmDialog("删除收藏夹？", "其中的书籍会移入默认收藏，文件不会删除。", { deleteFolder = false }, confirmLabel = "删除收藏夹") { val previous = folder; c.action { c.store.update { it.deleteShelfFolder(previous) }; folder = "全部" } }

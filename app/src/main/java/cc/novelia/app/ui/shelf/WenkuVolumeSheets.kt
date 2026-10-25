@@ -15,6 +15,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
@@ -28,18 +29,19 @@ import cc.novelia.app.ui.theme.motionClickable
 
 internal data class ShelfRowItem(val saved: SavedBook, val parent: SavedBook? = null, val volumeCount: Int = 0, val expanded: Boolean = false)
 
-@Composable internal fun MountedVolumeRow(saved: SavedBook, position: Position?, modifier: Modifier, onClick: () -> Unit, trailing: @Composable () -> Unit, dragHandle: (@Composable () -> Unit)? = null) {
+@Composable internal fun MountedVolumeRow(saved: SavedBook, position: Position?, modifier: Modifier, onClick: () -> Unit, trailing: @Composable () -> Unit, dragHandle: (@Composable () -> Unit)? = null, indented: Boolean = true) {
     val line = MaterialTheme.colorScheme.outlineVariant
     val reading = bookRowStatus(saved.book, saved, position, null)
     ListItem(headlineContent = { Text(saved.book.title, maxLines = 3) },
+        colors = ListItemDefaults.colors(containerColor = if(indented) MaterialTheme.colorScheme.surface else Color.Transparent),
         supportingContent = { Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("${reading.progressLabel} · ${position?.title?.ifBlank { "继续阅读" } ?: "尚未开始阅读"}", maxLines = 2)
-            BookReadingProgressBar(reading, Modifier.testTag("book-reading-progress-${saved.book.ref.key}"))
+            Text(if(!indented && position == null) reading.progressLabel else "${reading.progressLabel} · ${position?.title?.ifBlank { "继续阅读" } ?: "尚未开始阅读"}", maxLines = 2)
+            if(indented || position != null || saved.status == "读完") BookReadingProgressBar(reading, Modifier.testTag("book-reading-progress-${saved.book.ref.key}"))
         } },
         leadingContent = dragHandle ?: { Icon(Icons.AutoMirrored.Outlined.MenuBook, null, tint = MaterialTheme.colorScheme.primary) },
         trailingContent = trailing,
-        modifier = modifier.testTag("shelf-volume-${saved.book.ref.key}").padding(start = 28.dp, end = 8.dp)
-            .drawBehind { drawLine(line, Offset.Zero, Offset(0f, size.height), strokeWidth = 1.dp.toPx()) }.motionClickable(onClick = onClick))
+        modifier = modifier.testTag("shelf-volume-${saved.book.ref.key}").padding(start = if(indented) 28.dp else 4.dp, end = 8.dp)
+            .drawBehind { if(indented) drawLine(line, Offset.Zero, Offset(0f, size.height), strokeWidth = 1.dp.toPx()) }.motionClickable(onClick = onClick))
 }
 
 @Composable internal fun WenkuVolumeManager(parent: SavedBook, books: List<SavedBook>, onDismiss: () -> Unit, onSave: (Set<String>) -> Unit) {

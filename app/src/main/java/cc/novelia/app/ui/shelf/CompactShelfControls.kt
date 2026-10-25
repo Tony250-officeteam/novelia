@@ -31,6 +31,7 @@ import cc.novelia.app.ui.components.base.*
     maxHeight: Dp, onCreateFolder: () -> Unit, onRenameFolder: () -> Unit, onDeleteFolder: () -> Unit,
     characters: CharacterCountFilter = CharacterCountFilter(), onCharacters: (CharacterCountFilter) -> Unit = {},
     countLabel: String = "", visible: Boolean = true, active: Boolean = true, modifier: Modifier = Modifier,
+    grid: Boolean? = null, onToggleLayout: () -> Unit = {},
     trailingContent: @Composable () -> Unit = {},
 ) {
     val focus = LocalFocusManager.current
@@ -93,6 +94,7 @@ import cc.novelia.app.ui.components.base.*
                         trailingIcon = if(sort == index) ({ Icon(Icons.Outlined.Check, null) }) else null) }
                 }
             }
+            if(grid != null) ShelfLayoutToggle(grid, onToggleLayout, "local")
         }
         if(count > 0 || (!searchExpanded && query.isNotBlank())) FlowRow(
             Modifier.fillMaxWidth().padding(horizontal = 20.dp).testTag("local-filter-summary"), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

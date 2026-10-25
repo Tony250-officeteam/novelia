@@ -114,7 +114,8 @@ import cc.novelia.app.ui.navigation.AppController
                     }, query = query, onQuery = { query = it }, onSubmit = ::submit,
                     onClearQuery = { query = ""; submitted = ""; page = 0 }, expanded = expanded, onExpanded = { expanded = it },
                     countLabel = pageCount?.let { "本页 $it 本" } ?: "加载中", maxHeight = filterHeight, active = active,
-                    visible = !managing, modifier = Modifier.onSizeChanged { controlsHeight = it.height }) { close ->
+                    visible = !managing, modifier = Modifier.onSizeChanged { controlsHeight = it.height },
+                    grid = local.cloudShelfGrid, onToggleLayout = { c.store.update { it.copy(cloudShelfGrid = !it.cloudShelfGrid) } }) { close ->
                     DropdownMenuItem({ Text("新建收藏夹") }, { close(); create = true }, leadingIcon = { Icon(Icons.Outlined.Add, null) })
                     if(editable != null) {
                         DropdownMenuItem({ Text("重命名收藏夹") }, { close(); rename = editable })
@@ -137,7 +138,7 @@ import cc.novelia.app.ui.navigation.AppController
                             managing, { managing = it; if(it) { expanded = false; focus.clearFocus() } }, selection, { selection = it },
                             bulkBusy, bulkProgress, active, controlsHeight, selectedBookKey,
                             onOpenBook = { expanded = false; onOpenBook(it) }, onLocal = { bulkLocal = selection.values.toList() },
-                            onRemove = { bulkRemoval = current.id to selection.values.toList() }, onRetry = retry,
+                            onRemove = { bulkRemoval = current.id to selection.values.toList() }, onRetry = retry, grid = local.cloudShelfGrid,
                             metadata = { rememberCloudBookMetadata(c, it, account, refreshKey) }, actions = { displayed, canAct ->
                                 val book = displayed
                                 val cancelling = pendingFavoriteAction(local.pending, account, book.ref)?.method == "DELETE"

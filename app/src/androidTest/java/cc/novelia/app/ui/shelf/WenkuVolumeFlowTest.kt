@@ -104,6 +104,7 @@ class WenkuVolumeFlowTest {
         compose.waitForIdle()
         scrollTo(hasContentDescription("管理 第1卷 春日启程"))
         compose.onNodeWithContentDescription("管理 第1卷 春日启程").performClick()
+        assertEquals("阅读后仍应保留分卷挂载", parentRef.key, app.store.state.value.books.first { it.book.ref == volumeRef }.parentWenkuKey)
         compose.onNodeWithText("更换或取消挂载").performScrollTo().performClick()
         compose.onNodeWithTag("volume-parent-picker").performScrollToNode(hasTestTag("volume-parent-${otherRef.key}"))
         compose.onNodeWithTag("volume-parent-${otherRef.key}").performClick()
@@ -367,7 +368,9 @@ class WenkuVolumeFlowTest {
                     SavedBook(BookCard(otherRef, "远山来信", subtitle = "文库小说"), addedAt = 3),
                     SavedBook(BookCard(volumeRef, "第1卷 春日启程"), addedAt = 2),
                     SavedBook(BookCard(secondRef, "第2卷 夏日约定"), addedAt = 1)
-                ), positions = emptyMap(), folders = listOf("默认收藏"), theme = "light", reducedMotion = true, reader = ReaderSettings(), historyPaused = false) }
+                ), positions = emptyMap(), folders = listOf("默认收藏"), theme = "light", reducedMotion = true, reader = ReaderSettings(), historyPaused = false,
+                    // 本测试覆盖分卷流程；独立悬浮工具栏的触摸区域不应遮挡受测的行内按钮。
+                    edgeToolbar = it.edgeToolbar.copy(enabled = false), shelfGrid = false, localFilesGrid = false) }
             }
             block(app)
         } finally {

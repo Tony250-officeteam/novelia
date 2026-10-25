@@ -28,6 +28,7 @@ import cc.novelia.app.ui.components.base.*
     query: String, onQuery: (String) -> Unit, onSubmit: () -> Unit, onClearQuery: () -> Unit,
     expanded: Boolean, onExpanded: (Boolean) -> Unit, countLabel: String, maxHeight: Dp,
     active: Boolean, visible: Boolean, modifier: Modifier = Modifier,
+    grid: Boolean? = null, onToggleLayout: () -> Unit = {},
     folderActions: @Composable ColumnScope.(close: () -> Unit) -> Unit,
 ) {
     var folderMenu by remember { mutableStateOf(false) }
@@ -79,6 +80,7 @@ import cc.novelia.app.ui.components.base.*
                     }
                 }
             }
+            if(grid != null) ShelfLayoutToggle(grid, onToggleLayout, "cloud")
         }
         if(kind == 0 && (count > 0 || (!searchExpanded && filter.query.isNotBlank()))) FlowRow(
             Modifier.fillMaxWidth().padding(horizontal = 20.dp).testTag("cloud-filter-summary"), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

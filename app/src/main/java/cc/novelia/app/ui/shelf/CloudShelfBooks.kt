@@ -27,15 +27,21 @@ import cc.novelia.app.ui.components.book.bookRowStatus
     managing: Boolean, onManaging: (Boolean) -> Unit, selection: Map<String, BookCard>, onSelection: (Map<String, BookCard>) -> Unit,
     busy: Boolean, progress: Int, active: Boolean, controlsHeight: Int, selectedBookKey: String?,
     onOpenBook: (BookRef) -> Unit, onLocal: () -> Unit, onRemove: () -> Unit, onRetry: () -> Unit,
+    grid: Boolean = false,
     metadata: @Composable (BookCard) -> BookCard = { it }, actions: @Composable (BookCard, () -> Boolean) -> Unit = { _, _ -> },
 ) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
     val density = LocalDensity.current
     val keys = books.map { it.ref.key }
-    val dragSelection = rememberShelfDragSelection(listState, keys, selection.keys, managing, active && !busy,
+    val columns = shelfGridColumns(maxWidth)
+    val gridRows = remember(books, columns) { books.chunked(columns) }
+    val layout = rememberShelfLayoutState(grid, keys, keys, columns, listState = listState)
+    val gridHit = rememberShelfGridHitTest(layout.grid, gridRows.map { row -> row.map { it.ref.key } }, columns)
+    val dragSelection = rememberShelfDragSelection(layout.current(grid), keys, selection.keys, managing, active && !busy,
         onBegin = { onManaging(true) }, onSelection = { chosen ->
             // 另一页的选择不能因本页开始拖选而丢失。
             onSelection((selection + books.associateBy { it.ref.key }).filterKeys { it in chosen })
-        })
+        }, hitTest = if(grid) gridHit else null)
     fun toggle(book: BookCard) {
         if(!busy && !dragSelection.dragging) onSelection(if(book.ref.key in selection) selection - book.ref.key else selection + (book.ref.key to book))
     }
@@ -46,12 +52,32 @@ import cc.novelia.app.ui.components.book.bookRowStatus
                 onSelectAll = { onSelection(if(allSelected) selection - keys.toSet() else selection + books.associateBy { it.ref.key }) },
                 onFinish = { onManaging(false); onSelection(emptyMap()) }, tagPrefix = "cloud", selectAllLabel = if(allSelected) "取消本页全选" else "全选本页")
         }
-        AppLazyColumn(state = listState, modifier = Modifier.weight(1f),
-            listModifier = Modifier.testTag("cloud-books").shelfDragSelection(dragSelection, active && !busy)) {
+        ShelfLayoutTransition(grid, Modifier.weight(1f)) { showGrid ->
+        AppLazyColumn(state = layout.current(showGrid), modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(if(showGrid) 14.dp else 0.dp),
+            contentPadding = PaddingValues(top = if(showGrid) 8.dp else 0.dp, bottom = 12.dp),
+            listModifier = Modifier.testTag(if(showGrid) "cloud-books-grid" else "cloud-books")
+                .shelfDragSelection(dragSelection, active && !busy && showGrid == grid)) {
             if(books.isEmpty()) item {
                 EmptyState("没有匹配的收藏", "可调整筛选、切换收藏夹，或在书籍详情中添加云端收藏。", action = "重新加载", onAction = onRetry)
             }
-            items(books, key = { it.ref.key }, contentType = { "book" }) { book ->
+            if(showGrid) items(gridRows, key = { it.first().ref.key }, contentType = { "cover-row" }) { row ->
+                Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    row.forEach { book -> key(book.ref.key) {
+                        val displayed = metadata(book)
+                        val open = { if(!dragSelection.dragging && !busy) { if(managing) toggle(displayed) else onOpenBook(book.ref) } }
+                        ShelfCoverCard(displayed, bookRowStatus(displayed, local.books.firstOrNull { it.book.ref == book.ref },
+                            local.positions[book.ref.key], local.bookUpdates[book.ref.key], account, preferCloud = true), open,
+                            Modifier.weight(1f).testTag("cloud-book-${book.ref.key}").semantics {
+                                selected = if(managing) book.ref.key in selection else book.ref.key == selectedBookKey
+                                onClick(if(managing) "切换选择" else "打开书籍") { open(); true }
+                                if(active && !busy) onLongClick("选择${book.title}") { dragSelection.selectOne(book.ref.key); true }
+                            }, selecting = managing, selected = if(managing) book.ref.key in selection else book.ref.key == selectedBookKey, enabled = !busy,
+                            footer = if(!managing) ({ actions(displayed) { !dragSelection.dragging && !busy } }) else null)
+                    } }
+                    repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+            } else items(books, key = { it.ref.key }, contentType = { "book" }) { book ->
                 val displayed = metadata(book)
                 val chosen = if(managing) book.ref.key in selection else book.ref.key == selectedBookKey
                 val open = { if(!dragSelection.dragging && !busy) { if(managing) toggle(displayed) else onOpenBook(book.ref) } }
@@ -70,7 +96,9 @@ import cc.novelia.app.ui.components.book.bookRowStatus
             }
             item { PageControls(page, pageCount) { if(!busy && !dragSelection.dragging) onPage(it) } }
         }
+        }
         if(managing) CloudSelectionActions(selection.size, busy, progress, onLocal, onRemove, { onSelection(emptyMap()) })
+    }
     }
 }
 

@@ -37,6 +37,7 @@ class CloudShelfInteractionTest {
     private var query by mutableStateOf("")
     private var filter by mutableStateOf(CloudWebFilter())
     private var expanded by mutableStateOf(false)
+    private var grid by mutableStateOf(false)
     private var local by mutableStateOf(false)
     private var created = false
     private var opened = 0
@@ -58,14 +59,15 @@ class CloudShelfInteractionTest {
                             CompactCloudControls(folders, folders.first { it.id == folder }, { folder = it }, sort, { sort = it }, kind, filter,
                                 { nextKind, next -> kind = nextKind; filter = next; managing = false; selected = emptyMap() },
                                 query, { query = it }, { filter = filter.copy(query = query.trim()) }, { query = ""; filter = filter.copy(query = "") },
-                                expanded, { expanded = it }, "本页 10 本", 580.dp, true, !managing, Modifier.onSizeChanged { height = it.height }) { close ->
+                                expanded, { expanded = it }, "本页 10 本", 580.dp, true, !managing, Modifier.onSizeChanged { height = it.height },
+                                grid = grid, onToggleLayout = { grid = !grid }) { close ->
                                 DropdownMenuItem({ Text("新建收藏夹") }, { close(); created = true })
                             }
                             val state = key(page) { rememberLazyListState() }
                             Box(Modifier.weight(1f)) {
                                 CloudShelfBooks(books.drop(page * 10).take(10), LibraryState(), "preview", state, page, 2, { page = it },
                                     managing, { managing = it }, selected, { selected = it }, busy, 1, true, height, null,
-                                    { opened++ }, { local = true }, { busy = true }, {})
+                                    { opened++ }, { local = true }, { busy = true }, {}, grid = grid)
                             }
                         }
                     } }
@@ -174,6 +176,30 @@ class CloudShelfInteractionTest {
         listOf("cloud-selection-local", "cloud-selection-clear", "cloud-selection-remove").forEach {
             compose.onNodeWithTag(it).assertIsDisplayed().assertHeightIsAtLeast(48.dp)
         }
+    }
+
+    @Test fun cloudGridUsesTheSameSelectionActionsAndSwitchesBackWithoutLosingTheBook() {
+        grid = true
+        show(reduced = false)
+        compose.onNodeWithTag("cloud-books-grid").performScrollToIndex(2)
+        compose.onNodeWithTag("cloud-layout-toggle").performClick()
+        compose.onNodeWithTag("cloud-book-${books[4].ref.key}").assertIsDisplayed()
+        compose.onNodeWithTag("cloud-layout-toggle").performClick()
+        compose.onNodeWithTag("cloud-book-${books[4].ref.key}").assertIsDisplayed()
+        compose.onNodeWithTag("cloud-books-grid").performScrollToIndex(0)
+        screenshot("cloud-grid-live")
+        compose.onNodeWithTag("cloud-book-${books[1].ref.key}").performTouchInput { longClick() }
+        compose.onNodeWithText("已选 1 本").assertIsDisplayed()
+        compose.runOnIdle { assertEquals(setOf(books[1].ref.key), selected.keys); assertEquals(0, opened) }
+        compose.onNodeWithTag("cloud-book-${books[0].ref.key}").performClick()
+        compose.onNodeWithText("已选 2 本").assertIsDisplayed()
+        compose.onNodeWithTag("cloud-selection-local").performClick()
+        compose.onNodeWithText("周末阅读").performClick()
+        compose.runOnIdle { assertEquals("周末阅读", savedFolder) }
+        compose.onNodeWithTag("cloud-selection-done").performClick()
+        compose.onNodeWithTag("cloud-books-grid").performScrollToIndex(5)
+        compose.onNodeWithContentDescription("第 2 页").performClick()
+        compose.onNodeWithTag("cloud-book-${books[10].ref.key}").assertIsDisplayed()
     }
 
     private fun screenshot(name: String, tag: String? = null) {

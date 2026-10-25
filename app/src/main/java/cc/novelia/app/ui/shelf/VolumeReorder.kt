@@ -1,12 +1,16 @@
 package cc.novelia.app.ui.shelf
 
 import cc.novelia.app.ui.components.base.AppIconButton
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.DragHandle
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
@@ -14,12 +18,16 @@ import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import cc.novelia.app.ui.components.base.AppDropdownMenu
 import cc.novelia.app.ui.theme.LocalEInkMode
+import cc.novelia.app.ui.theme.AppMotion
 import kotlin.math.abs
 
 /** 排序草稿仅在手势期间存在，完成一次拖放只持久化一次。 */
@@ -30,7 +38,7 @@ internal class VolumeReorderState(
 ) {
     var draggedKey by mutableStateOf<String?>(null)
         private set
-    private var parentKey: String? = null
+    private var parentKey by mutableStateOf<String?>(null)
     private var order by mutableStateOf(emptyList<String>())
     private var top by mutableFloatStateOf(0f)
     private var height = 0
@@ -39,7 +47,7 @@ internal class VolumeReorderState(
 
     val rows: List<ShelfRowItem>
         get() {
-            if(draggedKey == null) return sourceRows
+            if(parentKey == null) return sourceRows
             val volumes = sourceRows.filter { it.parent?.book?.ref?.key == parentKey }.associateBy { it.saved.book.ref.key }
             var index = 0
             return sourceRows.map { if(it.parent?.book?.ref?.key == parentKey) volumes.getValue(order[index++]) else it }
@@ -47,6 +55,9 @@ internal class VolumeReorderState(
 
     val offset: Float
         get() = draggedKey?.let { key -> list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == key }?.let { top - it.offset } } ?: 0f
+
+    val draggedTop: Float get() = top
+    fun itemTop(key: String): Float? = list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == key }?.offset?.toFloat()
 
     fun siblings(key: String): List<String> {
         val parent = sourceRows.firstOrNull { it.saved.book.ref.key == key }?.parent ?: return emptyList()
@@ -86,8 +97,10 @@ internal class VolumeReorderState(
         val from = order.indexOf(key)
         val target = visible.filter { it.key in order && it.key != key }.filter {
             val to = order.indexOf(it.key)
-            if(lastDirection > 0) to > from && center > it.offset + it.size / 2f
-            else lastDirection < 0 && to < from && center < it.offset + it.size / 2f
+            // 按重叠量判断跨越，避免较高的进度行在首尾永远无法越过较矮分卷的中心。
+            val overlap = minOf(height, it.size) / 2f
+            if(lastDirection > 0) to > from && top + height > it.offset + overlap
+            else lastDirection < 0 && to < from && top < it.offset + it.size - overlap
         }.minByOrNull { abs(center - (it.offset + it.size / 2f)) } ?: return
         val to = order.indexOf(target.key)
         // 首个可见项被重排时，保持视口位置稳定。
@@ -102,10 +115,18 @@ internal class VolumeReorderState(
         val above = top - layout.viewportStartOffset
         val below = layout.viewportEndOffset - (top + height)
         val index = order.indexOf(draggedKey)
-        val step = when {
+        var step = when {
             lastDirection < 0 && index > 0 && above < edge -> -maxStep * (1f - above / edge).coerceIn(0f, 1f)
             lastDirection > 0 && index < order.lastIndex && below < edge -> maxStep * (1f - below / edge).coerceIn(0f, 1f)
             else -> 0f
+        }
+        // 刚成为首/末项时仍可能被视口裁切；继续滚到该分卷完整可见，但不越过所属作品。
+        if(index == 0 && lastDirection < 0 && above < edge) {
+            val first = layout.visibleItemsInfo.firstOrNull { it.key == order.first() }
+            if(first != null) step = (first.offset - layout.viewportStartOffset).toFloat().coerceIn(-maxStep, 0f)
+        } else if(index == order.lastIndex && lastDirection > 0 && below < edge) {
+            val last = layout.visibleItemsInfo.firstOrNull { it.key == order.last() }
+            if(last != null) step = (last.offset + last.size - layout.viewportEndOffset).toFloat().coerceIn(0f, maxStep)
         }
         if(step != 0f) list.scrollBy(step)
         moveAcrossSiblings()
@@ -116,8 +137,13 @@ internal class VolumeReorderState(
         val parent = parentKey ?: return
         val result = order
         val changed = result != siblings(key)
-        cancel()
-        if(changed) onCommit(parent, result)
+        if(changed) {
+            // Store 的新列表要到下一次组合才接管；此时清空草稿会先恢复旧顺序，
+            // LazyColumn 随即跟随旧 key 调整视口，首尾分卷可能跳走甚至被回收。
+            draggedKey = null
+            pendingIndex = null
+            onCommit(parent, result)
+        } else cancel()
     }
 
     fun cancel() {
@@ -135,6 +161,31 @@ internal class VolumeReorderState(
         val to = from + delta
         if(from >= 0 && to in keys.indices) onCommit(parent.book.ref.key, keys.toMutableList().apply { add(to, removeAt(from)) })
     }
+}
+
+private class VolumeDragPlacement(var top: Float = 0f)
+
+/** 拖拽行紧跟手指，其余行让位；松手后从屏幕中的最后位置归位，不因草稿提交而跳回。 */
+@Composable internal fun LazyItemScope.volumeReorderMotion(
+    state: VolumeReorderState, key: String, reducedMotion: Boolean, selectionDragging: Boolean = false
+): Modifier {
+    val moving = state.draggedKey == key
+    val placement = remember(key) { VolumeDragPlacement() }
+    val remaining by animateFloatAsState(if(moving) 1f else 0f,
+        animationSpec = if(moving || reducedMotion) snap() else tween(AppMotion.Release), label = "volume-drop")
+    val lifted = moving || remaining > 0f
+    val surface = MaterialTheme.colorScheme.surfaceContainerHigh
+    return (if(reducedMotion) Modifier else Modifier.animateItem(
+        fadeInSpec = null, placementSpec = if(lifted || selectionDragging) null else tween(AppMotion.Standard), fadeOutSpec = null))
+        .zIndex(if(lifted) 1f else 0f)
+        .graphicsLayer {
+            if(moving) {
+                placement.top = state.draggedTop
+                translationY = state.offset
+            } else translationY = if(remaining > 0f) (placement.top - (state.itemTop(key) ?: placement.top)) * remaining else 0f
+            shadowElevation = if(lifted && !reducedMotion) 4.dp.toPx() else 0f
+        }
+        .drawBehind { if(lifted) drawRect(surface) }
 }
 
 @Composable internal fun rememberVolumeReorderState(
