@@ -33,6 +33,8 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
@@ -195,6 +197,18 @@ import kotlinx.coroutines.withContext
                 val downloadableSelection = remember(books, selection) { books.filter { it.book.ref.key in selection && !it.book.ref.isLocal && !it.book.ref.isWenku } }
                 val pageManaging = active && managing
                 val listState = rememberLazyListState()
+                val continueBook = recent?.takeIf { page == 0 && active && !pageManaging }
+                val density = LocalDensity.current
+                val collapseThreshold = with(density) { 48.dp.roundToPx() }
+                val continueExpanded by remember(listState, collapseThreshold) {
+                    derivedStateOf { listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset < collapseThreshold }
+                }
+                var continueHeight by remember { mutableIntStateOf(0) }
+                var listHeight by remember { mutableIntStateOf(0) }
+                // 电子纸的翻屏栏也位于列表底部，浮动入口需放在翻屏栏上方。
+                val pagingControlsHeight by remember {
+                    derivedStateOf { (listHeight - listState.layoutInfo.viewportSize.height).coerceAtLeast(0) }
+                }
                 var controlsExpanded by rememberSaveable { mutableStateOf(false) }
                 var filtersExpanded by remember { mutableStateOf(false) }
                 LaunchedEffect(active) { if(!active) filtersExpanded = false }
@@ -260,7 +274,10 @@ import kotlinx.coroutines.withContext
                                 }
                             }, enabled = managing && !batchWorking && !queueingDownloads && downloadableSelection.isNotEmpty()) { Text(if(queueingDownloads) "正在加入…" else "下载") }
                         } }
-                        AppLazyColumn(modifier = Modifier.weight(1f), listModifier = Modifier.testTag("shelf-books"), state = listState) {
+                        AppLazyColumn(modifier = Modifier.weight(1f).onSizeChanged { listHeight = it.height },
+                            listModifier = Modifier.testTag("shelf-books"), state = listState,
+                            contentPadding = PaddingValues(bottom = if(continueBook != null)
+                                with(density) { continueHeight.toDp() } + 32.dp else 0.dp)) {
                             if(importedBooks.isNotEmpty()) item(key = "imported-books", contentType = "hero") {
                                 Card(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
                                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -273,17 +290,6 @@ import kotlinx.coroutines.withContext
                                             AppButton(onClick = { c.book(saved.book.ref) }, modifier = Modifier.fillMaxWidth()) { Text("开始阅读") }
                                         }
                                         if(importedBooks.size > 3) Text("另有 ${importedBooks.size - 3} 本小说已加入书架。", style = MaterialTheme.typography.bodySmall)
-                                    }
-                                }
-                            }
-                            if(recent != null && page == 0 && query.isBlank() && folder == "全部" && bookType == ShelfBookType.All && readingStatus == "全部") item(key = "continue-reading", contentType = "hero") {
-                                val position = state.positions.getValue(recent.book.ref.key)
-                                Card(onClick = { c.read(recent.book.ref, position.chapterId) }, modifier = Modifier.fillMaxWidth().padding(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-                                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                        Text("继续上次的故事", style = MaterialTheme.typography.labelLarge)
-                                        Text(recent.book.title, style = MaterialTheme.typography.titleLarge, maxLines = 2)
-                                        Text(position.title.ifBlank { "已记录阅读位置" }, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-                                        Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Outlined.PlayArrow, null); Text("继续阅读", style = MaterialTheme.typography.labelLarge) }
                                     }
                                 }
                             }
@@ -345,6 +351,14 @@ import kotlinx.coroutines.withContext
                                 }
                             }
                         }
+                    }
+                    if(continueBook != null) {
+                        val position = state.positions.getValue(continueBook.book.ref.key)
+                        ContinueReadingButton(continueBook.book, position,
+                            { c.read(continueBook.book.ref, position.chapterId) },
+                            Modifier.align(Alignment.BottomEnd)
+                                .padding(end = 16.dp, bottom = 16.dp + with(density) { pagingControlsHeight.toDp() })
+                                .onSizeChanged { continueHeight = it.height }, expanded = continueExpanded)
                     }
                 }
             }
