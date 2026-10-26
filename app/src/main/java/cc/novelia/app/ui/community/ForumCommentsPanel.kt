@@ -220,7 +220,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
         val label = if(comment.status == 2) "该评论已删除" else "该评论已隐藏"
         if(profile?.role == "admin" && comment.content.isNotEmpty()) {
             AppTextButton(onClick = { expanded = !expanded }) { Text("$label · ${if(expanded) "收起原文" else "查看原文"}") }
-            if(expanded) render(comment.content)
+            key(comment.id, comment.status, profile.userId, profile.role) {
+                CommentDisclosure(expanded) { render(comment.content) }
+            }
         } else Text(label)
     }
 }
