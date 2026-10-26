@@ -25,39 +25,55 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import cc.novelia.app.ui.components.base.AppLazyColumn
+import cc.novelia.app.ui.components.base.rememberCachedListState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cc.novelia.app.ui.components.base.friendlyMessage
 
 /** 本地筛选使用继续加载游标，不把原站页数当成筛选后的总页数。 */
 @Composable internal fun FilteredNovelList(c: AppController, requestKey: Any, filter: NovelLocalFilter, library: LibraryState,
     loadPage: suspend (Int, Boolean) -> Page<BookCard>, onReset: () -> Unit, keywordLabels: Map<String, String> = emptyMap(),
-    onPageTurn: (Int) -> Unit = {}) {
-    var result by remember(requestKey) { mutableStateOf(c.filteredDiscoverPage?.takeIf { it.first == requestKey }?.second) }
+    onPageTurn: (Int) -> Unit = {}, refreshKey: Int = 0) {
+    val cache = c.uiResults.filtered
+    val revision by cache.revision.collectAsStateWithLifecycle()
+    val initial = remember(requestKey) { cache.snapshot(requestKey) }
+    var result by remember(requestKey) { mutableStateOf(initial?.value) }
+    var reloading by remember(requestKey) { mutableStateOf(initial?.fresh == false) }
     var request by remember(requestKey) { mutableIntStateOf(0) }
     var loading by remember(requestKey) { mutableStateOf(result == null) }
     var error by remember(requestKey) { mutableStateOf<String?>(null) }
-    var forceNetwork by remember(requestKey) { mutableStateOf(false) }
+    var forceNetwork by remember(requestKey) { mutableStateOf(initial?.fresh == false) }
+    var observedRevision by remember(requestKey) { mutableLongStateOf(revision) }
+    var observedRefresh by remember(requestKey) { mutableIntStateOf(refreshKey) }
+    LaunchedEffect(refreshKey) {
+        if(observedRefresh != refreshKey) { observedRefresh = refreshKey; reloading = true; forceNetwork = true; request++ }
+    }
+    LaunchedEffect(revision) {
+        if(observedRevision != revision) { observedRevision = revision; reloading = true; forceNetwork = true; request++ }
+    }
     val currentLoad by rememberUpdatedState(loadPage)
     LaunchedEffect(requestKey, request) {
-        if(request == 0 && result != null) return@LaunchedEffect
+        if(request == 0 && result != null && !reloading) return@LaunchedEffect
         loading = true
         error = null
         try {
-            val before = result ?: FilteredNovelBatch()
+            val before = if(reloading) FilteredNovelBatch() else result ?: FilteredNovelBatch()
+            val cacheRevision = cache.revision.value
             fun publish(batch: FilteredNovelBatch) {
                 result = batch.copy(books = (before.books + batch.books).distinctBy { it.ref.key },
                     scanned = before.scanned + batch.scanned, unknown = before.unknown + batch.unknown)
-                c.filteredDiscoverPage = requestKey to result!!
+                cache.put(requestKey, result!!, cacheRevision)
             }
             val batch = loadFilteredNovels(before.nextPage, filter, loadPage = { currentLoad(it, forceNetwork) },
                 enrich = { enrichAuthors(it, c, library.blockedAuthors, filter.characters.active, forceNetwork) },
                 visible = { visibleBook(it, library) }, onProgress = { publish(it) })
             currentCoroutineContext().ensureActive()
             publish(batch)
+            reloading = false
         } catch(e: CancellationException) { throw e }
           catch(e: Exception) { error = e.friendlyMessage() }
         finally { loading = false; forceNetwork = false }
     }
-    val scroll = key(requestKey) { rememberLazyListState() }
+    val scroll = rememberCachedListState(cache, requestKey)
     val reducedMotion = appReducedMotion()
     MotionContent(listOf(requestKey, result != null), Modifier.fillMaxSize(), animateInitial = result != null) {
     AppLazyColumn(state = scroll, modifier = Modifier.fillMaxSize(), onPageTurn = onPageTurn) {
@@ -81,7 +97,7 @@ import cc.novelia.app.ui.components.base.friendlyMessage
                 if(result?.endReached != true || error != null) AppButton(onClick = { request++ }, enabled = !loading,
                     modifier = Modifier.fillMaxWidth().testTag("continue-filtered-search")) { Text(if(error == null) "继续查找" else "重试") }
                 if(result?.endReached == true) Text("已检查完当前搜索结果", style = MaterialTheme.typography.bodySmall)
-                AppTextButton(onClick = { result = null; c.filteredDiscoverPage = null; forceNetwork = true; request++ }, enabled = !loading) { Text("重新查找") }
+                AppTextButton(onClick = { reloading = true; forceNetwork = true; request++ }, enabled = !loading) { Text("重新查找") }
                 AppTextButton(onClick = onReset) { Text("清空筛选") }
             }
         }

@@ -35,11 +35,16 @@ open class ApiException(val status: Int, override val message: String) : IOExcep
  * 默认禁止自动跟随重定向，认证头只由此入口按捕获的会话重新设置。
  * path 接收已处理好编码的路径段；查询参数通过 HttpUrl 编码，动态路径段使用 encodeSegment。
  */
-class NoveliaApi(val session: AuthenticationSession?, val baseUrl: String = "https://n.novelia.cc/api/", val transport: OkHttpClient = OkHttpClient.Builder().connectTimeout(20, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).followRedirects(false).build(), private val onMutation: (Long) -> Unit = {}, private val onKeywords: (Collection<String>) -> Unit = {}) {
+class NoveliaApi(val session: AuthenticationSession?, val baseUrl: String = "https://n.novelia.cc/api/", val transport: OkHttpClient = OkHttpClient.Builder().connectTimeout(20, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).followRedirects(false).build(), private val onMutation: (Long) -> Unit = {}, private val onKeywords: (Collection<String>) -> Unit = {}, private val onResourceMutation: (MetadataMutation) -> Unit = {}) {
     val cloudMutations = CloudMutationQueue()
     internal val downloadTransport by lazy { transport.forDownloads() }
     @Volatile var lastMutationAt: Long = 0L
         private set
+    @Volatile var catalogMutationAt: Long = 0L
+        private set
+    private var allDetailsMutationAt = 0L
+    private val detailMutations = mutableMapOf<String, Long>()
+    @Synchronized fun detailMutationAt(path: String): Long = maxOf(allDetailsMutationAt, detailMutations[path] ?: 0L)
     fun url(path: String, params: List<Pair<String, String>> = emptyList()): String = baseUrl.toHttpUrl().newBuilder().addEncodedPathSegments(path.trimStart('/')).apply { params.forEach { (k, v) -> addQueryParameter(k, v) } }.build().toString()
     suspend fun request(method: String, path: String, body: String? = null, params: Map<String, String> = emptyMap(), contentType: String = "application/json", binding: SessionBinding? = session?.capture(), errorMessage: ((Response) -> String?)? = null): String = withContext(Dispatchers.IO) {
         val request = Request.Builder().url(url(path, params.toList())).header("Accept", "application/json")
@@ -48,7 +53,7 @@ class NoveliaApi(val session: AuthenticationSession?, val baseUrl: String = "htt
             if (!response.isSuccessful) throw errorMessage?.invoke(response)?.let { ApiException(response.code, it) } ?: apiError(response.code)
             response.body?.string().orEmpty()
         }
-        if (method !in listOf("GET", "HEAD")) recordMutation()
+        if (method !in listOf("GET", "HEAD")) recordMutation(method, path, binding)
         text
     }
     /**
@@ -125,13 +130,21 @@ class NoveliaApi(val session: AuthenticationSession?, val baseUrl: String = "htt
         withAuthenticatedResponse(request, binding) { response ->
             if (!response.isSuccessful) throw ApiException(response.code, "上传失败（${response.code}），请检查账号权限和文件格式")
         }
-        recordMutation()
+        recordMutation("POST", "wenku/${ref.id}/volume/${encodeSegment(name)}", binding)
     }
     /** 服务端写入已成功才推进失效时间；本地缓存通知失败不能把成功写操作伪装成失败。 */
-    @Synchronized private fun recordMutation() {
-        lastMutationAt = System.currentTimeMillis()
+    @Synchronized private fun recordMutation(method: String, path: String, binding: SessionBinding?) {
+        lastMutationAt = maxOf(System.currentTimeMillis(), lastMutationAt + 1)
+        val mutation = MetadataMutation(method, path, binding, lastMutationAt)
+        if(mutation.catalog || mutation.detailPaths == null) catalogMutationAt = lastMutationAt
+        val paths = mutation.detailPaths
+        if(paths == null || detailMutations.size > 512) {
+            allDetailsMutationAt = lastMutationAt
+            detailMutations.clear()
+        } else paths.forEach { detailMutations[it] = lastMutationAt }
         // 远端写入已成功，本地缓存失效失败不能促使用户重复发帖。
         runCatching { onMutation(lastMutationAt) }
+        runCatching { onResourceMutation(mutation) }
     }
 }
 private sealed interface AuthResponse<out T> {

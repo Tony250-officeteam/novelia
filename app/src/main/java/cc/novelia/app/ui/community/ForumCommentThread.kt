@@ -18,9 +18,11 @@ import cc.novelia.app.ui.components.base.PageControls
 
 internal data class ForumReplyFocus(val rootId: Long, val page: Int, val commentId: Long)
 
-@Composable internal fun rememberForumReplyPages(vararg keys: Any?, initialRoots: List<ForumComment> = emptyList()): ForumReplyPageCache {
+@Composable internal fun rememberForumReplyPages(vararg keys: Any?, initialRoots: List<ForumComment> = emptyList(),
+    shared: cc.novelia.app.data.cache.UiResultCache<cc.novelia.app.data.community.ForumPage<ForumComment>>? = null,
+    identity: Any? = null): ForumReplyPageCache {
     val scope = rememberCoroutineScope()
-    val pages = remember(*keys) { ForumReplyPageCache(scope).apply { initialRoots.forEach { seedFirstPage(it) } } }
+    val pages = remember(*keys) { ForumReplyPageCache(scope, shared = shared, identity = identity).apply { initialRoots.forEach { seedFirstPage(it) } } }
     DisposableEffect(pages) { onDispose { pages.close() } }
     return pages
 }

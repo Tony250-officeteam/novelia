@@ -15,6 +15,10 @@ import cc.novelia.app.data.community.loadForumReplyCounts
 import cc.novelia.app.data.auth.SessionChangedException
 import cc.novelia.app.ui.components.base.AppLazyColumn
 import cc.novelia.app.ui.components.base.AsyncContent
+import cc.novelia.app.ui.components.base.CachedAsyncContent
+import cc.novelia.app.ui.components.base.rememberCachedListState
+import cc.novelia.app.data.cache.DiscussionUiKey
+import cc.novelia.app.data.cache.ReplyUiKey
 import cc.novelia.app.ui.components.base.EmptyState
 import cc.novelia.app.ui.components.base.PageControls
 import cc.novelia.app.ui.components.base.ConfirmDialog
@@ -67,6 +71,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
     // 保留在列表层，LazyColumn 回收单条评论时不会丢失计数；刷新、换账号或角色时失效。
     val binding = session.capture()
     val blacklistRevision by c.app.forumBlacklistRevision.collectAsStateWithLifecycle()
+    val cacheGeneration by c.store.cacheGeneration.collectAsStateWithLifecycle()
+    val discussionIdentity = DiscussionUiKey(discussionKey, binding, profile?.role, blacklistRevision, cacheGeneration)
+    val pageKey = listOf(discussionIdentity, page)
+    val scroll = rememberCachedListState(c.uiResults.comments, pageKey)
     val replyCounts = remember(discussionKey, binding, profile?.role, version, blacklistRevision) { mutableStateMapOf<Long, Long?>() }
     var countsRevision by remember(discussionKey, binding, profile?.role, version, blacklistRevision) { mutableIntStateOf(0) }
     var rootId by rememberSaveable(discussionKey, viewerKey) { mutableStateOf<Long?>(null) }
@@ -82,14 +90,17 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
     // 同时保护主评论和展开回复中的页码输入，编辑器收起或讨论锁定时也生效。
     Box(Modifier.fillMaxSize().imePadding()) {
     Column(Modifier.fillMaxSize()) {
-        AsyncContent(listOf(discussionKey, page, binding, profile?.role, blacklistRevision), refreshKey = version, load = {
+        CachedAsyncContent(c.uiResults.comments, pageKey, refreshKey = version, load = {
             session.ensureCurrent(binding)
             discussion.comments(page).also { session.ensureCurrent(binding) }
         },
-            onLoaded = { replyCounts.clear(); countsRevision++ }, modifier = Modifier.weight(1f)) { result, _ ->
+            onLoaded = {
+                replyCounts.clear(); countsRevision++
+                c.uiResults.replies.invalidate { it is ReplyUiKey && it.discussion == discussionIdentity }
+            }, modifier = Modifier.weight(1f), pullToRefreshEnabled = true) { result, refresh ->
             // 在讨论串首次组合之前初始化，避免展开时先发请求再填入首屏数据。
             val replyPages = rememberForumReplyPages(discussionKey, listOf(binding, blacklistRevision), profile?.role, version, countsRevision,
-                initialRoots = result.items)
+                initialRoots = result.items, shared = c.uiResults.replies, identity = discussionIdentity)
             val comments = result.items.filter { !it.authorBlocked && it.authorUsername !in state.blockedUsers }
             LaunchedEffect(result.items, version, countsRevision, state.blockedUsers) {
                 try {
@@ -103,7 +114,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
                     comments.filterNot { replyCounts.containsKey(it.id) }.forEach { replyCounts[it.id] = null }
                 }
             }
-            AppLazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp,
+            AppLazyColumn(state = scroll, contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp,
                 bottom = if(!locked && !composerExpanded) 88.dp else 20.dp)) {
                 if(comments.isEmpty()) item { EmptyState("还没有讨论", "来分享你的感想吧。", Icons.Outlined.ChatBubbleOutline) }
                 items(comments, key = { "${profile?.userId}:${profile?.role}:${it.id}" }) { root ->
@@ -129,6 +140,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
                     HorizontalDivider()
                 }
                 item { PageControls(page, result.pageCount()) { page = it } }
+                item { AppTextButton(onClick = refresh, Modifier.fillMaxWidth()) { Text("刷新讨论") } }
             }
         }
         if(locked && editing == null) Text("此讨论已锁定，暂时不能回复。", Modifier.padding(20.dp))

@@ -77,16 +77,32 @@ class AppController(val app: NoveliaApplication, val nav: NavHostController, val
     var pendingFavorite by mutableStateOf<BookCard?>(null)
     var pendingFavoriteCloud by mutableStateOf(false)
     private var celebration: Job? = null
-    /** 分区切换或进入详情时，分别保留网络小说、文库小说最近一页的结果。 */
-    internal val discoverPages = mutableMapOf<Int, Pair<Any, Page<BookCard>>>()
-    internal var discoverRecommendations: Pair<Any, Pair<List<BookCard>, List<BookCard>>>? = null
-    internal var rankPage: Pair<Any, Page<BookCard>>? = null
-    internal var filteredDiscoverPage: Pair<Any, cc.novelia.app.data.catalog.FilteredNovelBatch>? = null
-    internal var cloudFolders: Pair<Any, CloudFolders>? = null
-    internal var cloudShelfPage: Pair<Any, Page<BookCard>>? = null
-    internal var forumCategories: Pair<Any, List<ForumCategory>>? = null
-    // 分类分页器可能预组合邻页，按完整请求条件缓存，避免邻页覆盖当前列表。
-    internal val forumPages = WeightedMemoryCache<Any, ForumPage<ForumPost>>(24, 24L) { 1L }
+    internal val uiResults get() = app.uiResults
+    internal val forumPages get() = uiResults.forumPages
+    internal fun detailKey(path: String) = cc.novelia.app.data.cache.DetailUiKey(path, session.capture(), store.cacheGeneration.value, session.profile.value?.role)
+    internal fun categoriesKey(): Any {
+        val source = forumSession.capture()
+        return listOf("forum-categories", source.source, source.sourceRevision, store.cacheGeneration.value)
+    }
+    internal suspend fun categories(): List<ForumCategory> = uiResults.categories.load(categoriesKey()) { forumApi.categories() }
+    internal fun foldersKey(): Any = listOf(session.capture(), store.cacheGeneration.value)
+    internal suspend fun folders(): CloudFolders = uiResults.folders.load(foldersKey()) { api.get<CloudFolders>("user/favored") }
+    internal suspend fun webDetail(ref: BookRef, forceNetwork: Boolean = false): WebDetail {
+        val key = detailKey("novel/${ref.key}")
+        session.ensureCurrent(key.binding)
+        return uiResults.webDetails.load(key, forceNetwork) {
+            session.ensureCurrent(key.binding)
+            detail<WebDetail>(key.path, forceNetwork).also { session.ensureCurrent(key.binding) }
+        }
+    }
+    internal suspend fun wenkuDetail(ref: BookRef, forceNetwork: Boolean = false): WenkuDetail {
+        val key = detailKey("wenku/${ref.id}")
+        session.ensureCurrent(key.binding)
+        return uiResults.wenkuDetails.load(key, forceNetwork) {
+            session.ensureCurrent(key.binding)
+            detail<WenkuDetail>(key.path, forceNetwork).also { session.ensureCurrent(key.binding) }
+        }
+    }
     private val filterMetadataCache = NovelFilterMetadataCache(metadataCache)
     private val filterPageCache = NovelFilterPageCache()
 
@@ -94,14 +110,14 @@ class AppController(val app: NoveliaApplication, val nav: NavHostController, val
         translate: Int, sort: Int, forceNetwork: Boolean = false): Page<BookCard> {
         val binding = session.capture()
         val generation = store.cacheGeneration.value
-        val mutation = api.lastMutationAt
+        val mutation = api.catalogMutationAt
         val key = listOf(binding, generation, mutation, page, query, provider, type, level, translate, sort)
         if(!forceNetwork) filterPageCache.get(key)?.let { session.ensureCurrent(binding); return it }
         val fetchedAt = System.currentTimeMillis()
         val remote = api.webList(page, query, provider, type, level, translate, sort)
         session.ensureCurrent(binding)
         return Page(remote.pageNumber, remote.items.map { it.card() }).also {
-            if(generation == store.cacheGeneration.value && mutation == api.lastMutationAt) filterPageCache.put(key, it, fetchedAt)
+            if(generation == store.cacheGeneration.value && mutation == api.catalogMutationAt) filterPageCache.put(key, it, fetchedAt)
         }
     }
 
@@ -110,25 +126,26 @@ class AppController(val app: NoveliaApplication, val nav: NavHostController, val
         val binding = session.capture()
         val account = binding.cacheAccount
         val generation = store.cacheGeneration.value
-        val mutation = api.lastMutationAt
+        val mutation = api.catalogMutationAt
         val cached = filterMetadataCache.read(book.ref, account, mutation)
         if(!forceNetwork && cached?.reusable(book) == true) {
             session.ensureCurrent(binding)
             return@withContext cached.metadata.details.applyTo(book)
         }
         val path = "novel/${book.ref.key}"
+        val detailMutation = api.detailMutationAt(path)
         val detailKey = hashName("$account:$path")
         // 已知列表发生变化时，不拿更新前的完整详情重新生成看似新鲜的字数缓存。
         val existing = if(!forceNetwork && (cached == null || cached.matchesSource(book)))
-            metadataCache.readSnapshot(detailKey, maxAgeMillis = 5 * 60_000L, newerThan = mutation) else null
+            metadataCache.readSnapshot(detailKey, maxAgeMillis = 5 * 60_000L, newerThan = detailMutation) else null
         try {
             val fetchedAt = System.currentTimeMillis()
             val raw = existing ?: MetadataCache.Snapshot(api.request("GET", path, binding = binding), fetchedAt)
             val details = appJson.decodeFromString<NovelFilterDetails>(raw.text)
             session.ensureCurrent(binding)
-            if(mutation == api.lastMutationAt) runCatching {
+            if(mutation == api.catalogMutationAt) runCatching {
                 store.withCacheGeneration(generation) {
-                    if(existing == null) metadataCache.write(detailKey, raw.text, raw.fetchedAt)
+                    if(existing == null && detailMutation == api.detailMutationAt(path)) metadataCache.write(detailKey, raw.text, raw.fetchedAt)
                     filterMetadataCache.write(book, account, details, raw.fetchedAt)
                 }
             }
@@ -243,7 +260,7 @@ class AppController(val app: NoveliaApplication, val nav: NavHostController, val
     suspend fun article(id: String): Article {
         val postId = requireNotNull(ForumLinks.postId(id)) { "帖子 ID 无效" }
         val binding = forumSession.capture()
-        val article = forumApi.post(postId).article(forumApi.categories())
+        val article = forumApi.post(postId).article(categories())
         forumSession.ensureCurrent(binding)
         return article
     }
@@ -264,14 +281,14 @@ class AppController(val app: NoveliaApplication, val nav: NavHostController, val
     }
     /**
      * 读取账号隔离的详情：优先使用五分钟内的缓存，再请求网络。
-     * 普通 IO 失败可回退旧缓存，HTTP 业务错误直接抛出；forceNetwork 跳过首次缓存命中，
-     * 但仍保留 IO 失败回退。响应只有在写操作时间和缓存代次未变化时才允许缓存。
+     * 普通 IO 失败可回退旧缓存，HTTP 业务错误直接抛出；forceNetwork 失败不能把旧值当刷新成功。
+     * 响应只有在对应资源写操作时间和缓存代次未变化时才允许缓存。
      */
     suspend inline fun <reified T> detail(path: String, forceNetwork: Boolean = false): T = withContext(Dispatchers.IO) {
         val binding = session.capture()
         val account = binding.account ?: "guest"
         val key = hashName("${binding.cacheAccount}:$path")
-        val mutation = api.lastMutationAt
+        val mutation = api.detailMutationAt(path)
         val generation = store.cacheGeneration.value
         if (!forceNetwork) {
             metadataCache.readSnapshot(key, maxAgeMillis = 5 * 60_000L, newerThan = mutation)?.let { cached ->
@@ -288,14 +305,14 @@ class AppController(val app: NoveliaApplication, val nav: NavHostController, val
             val raw = api.request("GET", path, binding = binding)
             val parsed = appJson.decodeFromString<T>(raw)
             api.observeKeywords(parsed)
-            if (mutation == api.lastMutationAt && generation == store.cacheGeneration.value && account == (session.profile.value?.username ?: "guest")) {
+            if (mutation == api.detailMutationAt(path) && generation == store.cacheGeneration.value && account == (session.profile.value?.username ?: "guest")) {
                 session.ensureCurrent(binding)
                 observeBookUpdate(path, parsed, fetchedAt)
                 runCatching { store.withCacheGeneration(generation) { metadataCache.write(key, raw, fetchedAt) } }
             }
             parsed
         } catch (e: IOException) {
-            if (e is ApiException) throw e
+            if (e is ApiException || forceNetwork) throw e
             val cached = metadataCache.readSnapshot(key) ?: throw e
             val parsed = runCatching { appJson.decodeFromString<T>(cached.text) }.getOrElse { throw e }
             session.ensureCurrent(binding)

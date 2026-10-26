@@ -92,6 +92,15 @@ class MetadataCache(private val directory: File, private val maxBytes: Long = 32
 
     @Synchronized fun size(): Long { initialize(); return total }
 
+    /** 删除指定响应也会持久化失效；无关书目和精简字数缓存继续可用。 */
+    @Synchronized fun remove(key: String) {
+        initialize()
+        val target = file(key)
+        check(!target.exists() || target.delete()) { "无法使元数据缓存失效" }
+        entries.remove(target.name)?.let { total -= it.bytes; evictionOrder.remove(it) }
+        memory.remove(key)
+    }
+
     @Synchronized fun clear() {
         directory.listFiles()?.filter { it.isFile }?.forEach { it.delete() }
         entries.clear(); evictionOrder.clear(); memory.clear()

@@ -82,16 +82,19 @@ class NoveliaApplication : Application(), ImageLoaderFactory {
     private var webDavEdit: Job? = null
     internal val clipboardLinkHistory = ClipboardLinkHistory()
     val metadataCache get() = store.metadataCache
+    internal val uiResults = cc.novelia.app.data.cache.UiResultStore()
     val appUpdates by lazy { cc.novelia.app.data.appupdate.AppUpdateChecker(this,
         automaticChecksEnabled = { store.state.value.autoCheckAppUpdates }) }
     val appReleaseDownloads by lazy { cc.novelia.app.data.appupdate.AppReleaseDownloader(this) }
     private var appUpdateCheck: Job? = null
-    val api by lazy { NoveliaApi(session, transport = httpTransport, onMutation = { metadataCache.invalidate(it) }, onKeywords = { tags -> keywords.enqueueObservation(tags) }) }
+    val api by lazy { NoveliaApi(session, transport = httpTransport, onResourceMutation = ::novelChanged, onKeywords = { tags -> keywords.enqueueObservation(tags) }) }
     private val mutableForumBlacklistRevision = MutableStateFlow(0L)
     val forumBlacklistRevision = mutableForumBlacklistRevision.asStateFlow()
     private fun blacklistChanged() { mutableForumBlacklistRevision.update { it + 1 } }
-    val forumApi by lazy { ForumApi(NoveliaApi(forumSession, ForumApi.BASE_URL, httpTransport), ::blacklistChanged) }
-    val novelCommentApi by lazy { NovelCommentApi(NoveliaApi(session, ForumApi.BASE_URL, httpTransport), ::blacklistChanged) }
+    val forumApi by lazy { ForumApi(NoveliaApi(forumSession, ForumApi.BASE_URL, httpTransport,
+        onResourceMutation = { uiResults.forumChanged() }), ::blacklistChanged) }
+    val novelCommentApi by lazy { NovelCommentApi(NoveliaApi(session, ForumApi.BASE_URL, httpTransport,
+        onResourceMutation = { uiResults.comments.invalidate(); uiResults.replies.invalidate() }), ::blacklistChanged) }
     val forumAccountApi by lazy { ForumAccountApi(NoveliaApi(forumSession, ForumAccountApi.BASE_URL, httpTransport)) }
     val forumCommunityRules by lazy { ForumCommunityRulesRepository(
         MetadataCache(File(filesDir, "forum-community-rules"), 512 * 1024L),
@@ -110,11 +113,26 @@ class NoveliaApplication : Application(), ImageLoaderFactory {
     } }
     internal val launcherIcons by lazy { LauncherIconManager(this) }
 
+    private fun novelChanged(mutation: cc.novelia.app.data.network.MetadataMutation) {
+        uiResults.novelChanged(mutation)
+        val paths = mutation.detailPaths
+        if(paths == null) metadataCache.invalidate(mutation.timestamp)
+        else try {
+            val account = mutation.binding?.cacheAccount ?: "guest"
+            paths.forEach { path ->
+                metadataCache.remove(cc.novelia.app.data.storage.hashName("$account:$path"))
+                if(mutation.catalog && path.startsWith("novel/"))
+                    metadataCache.remove(cc.novelia.app.data.storage.hashName("$account:novel-filter/${path.removePrefix("novel/")}"))
+            }
+        } catch(_: Exception) { metadataCache.invalidate(mutation.timestamp) }
+    }
+
     override fun onCreate() {
         super.onCreate()
         startupAppearance
         launcherIcons
         initialization
+        applicationScope.launch { store.cacheGeneration.collect { uiResults.clear() } }
         applicationScope.launch {
             initialization.await()
             store.state.map { StartupAppearance(it.theme, it.amoledBlack) }.distinctUntilChanged()

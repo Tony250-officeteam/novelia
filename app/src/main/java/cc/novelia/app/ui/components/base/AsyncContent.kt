@@ -25,19 +25,21 @@ import kotlinx.coroutines.ensureActive
 /**
  * 页面共用的加载容器。key 表示内容身份，变化时清空结果；refreshKey 或内部重试只刷新同一内容。
  * 已有成功内容时刷新保留原组合和列表/编辑状态，失败显示附加错误，不退回整页空白。
- * initialResult 是同一内容的首帧种子，会跳过一次初始加载；后续显式刷新仍执行 load。
+ * initialResult 是同一内容的首帧种子；refreshOnEnter 可在展示种子时更新过期内容。
+ * discardContentOnError 用于权限或删除错误，不把已不可访问的内容继续保留在页面上。
  * pullToRefreshEnabled 为可滚动内容启用顶部下拉刷新，共用重试和刷新状态。
  * load 必须可取消且自行切换耗时工作的调度器；取消不转换为错误页，结果发布前再次检查取消。
  */
 @Composable fun <T> AsyncContent(key: Any?, load: suspend () -> T, modifier: Modifier = Modifier, refreshKey: Any? = Unit,
     initialResult: T? = null, onLoaded: (T) -> Unit = {}, revealContent: Boolean = false,
-    pullToRefreshEnabled: Boolean = false,
+    pullToRefreshEnabled: Boolean = false, refreshOnEnter: Boolean = false,
+    discardContentOnError: (Exception) -> Boolean = { false },
     content: @Composable (T, () -> Unit) -> Unit) {
     var refresh by remember(key) { mutableIntStateOf(0) }
     var result by remember(key) { mutableStateOf<Result<T>?>(initialResult?.let { Result.success(it) }) }
     var loading by remember(key) { mutableStateOf(initialResult == null) }
     var refreshError by remember(key) { mutableStateOf<Exception?>(null) }
-    var skipInitialLoad by remember(key) { mutableStateOf(initialResult != null) }
+    var skipInitialLoad by remember(key) { mutableStateOf(initialResult != null && !refreshOnEnter) }
     val currentLoad by rememberUpdatedState(load)
     LaunchedEffect(key, refreshKey, refresh) {
         if (skipInitialLoad) { skipInitialLoad = false; return@LaunchedEffect }
@@ -52,7 +54,7 @@ import kotlinx.coroutines.ensureActive
             throw e
         } catch(e: Exception) {
             currentCoroutineContext().ensureActive()
-            if(result?.isSuccess == true) refreshError = e else result = Result.failure(e)
+            if(result?.isSuccess == true && !discardContentOnError(e)) refreshError = e else result = Result.failure(e)
         }
         loading = false
     }

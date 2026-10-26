@@ -58,12 +58,18 @@ import cc.novelia.app.ui.navigation.loginForFavorite
                 dismiss()
                 loginForFavorite(c, book)
             })
-            else AsyncContent(listOf(book.ref, profile?.username), refreshKey = listOf(version, state.syncStatus[profile?.username]?.lastSuccessAt), load = {
+            else {
+            val detailKey = c.detailKey(if(book.ref.isWenku) "wenku/${book.ref.id}" else "novel/${book.ref.key}")
+            val cachedFolders = c.uiResults.folders.snapshot(c.foldersKey())?.takeIf { it.fresh }
+            val cachedDetail = if(book.ref.isWenku) c.uiResults.wenkuDetails.snapshot(detailKey)?.takeIf { it.fresh }?.let { it.value.favored to true }
+                else c.uiResults.webDetails.snapshot(detailKey)?.takeIf { it.fresh }?.let { it.value.favored to true }
+            AsyncContent(detailKey, refreshKey = listOf(version, state.syncStatus[profile?.username]?.lastSuccessAt),
+                initialResult = if(cachedFolders != null && cachedDetail != null) cachedFolders.value to cachedDetail.first else null, load = {
                 val binding = c.session.capture()
-                val folders = c.api.get<CloudFolders>("user/favored")
+                val folders = c.folders()
                 // 保存的 BookCard 可能来自旧账号，收藏归属应读取当前会话的详情缓存。
-                val favored = if(book.ref.isWenku) c.detail<WenkuDetail>("wenku/${book.ref.id}").favored
-                    else c.detail<WebDetail>("novel/${book.ref.key}").favored
+                val favored = if(book.ref.isWenku) c.wenkuDetail(book.ref).favored
+                    else c.webDetail(book.ref).favored
                 c.session.ensureCurrent(binding)
                 folders to favored
             }, modifier = Modifier.heightIn(max = 360.dp)) { (data, favored), _ ->
@@ -92,6 +98,7 @@ import cc.novelia.app.ui.navigation.loginForFavorite
                     } }
                     item { MenuRow("新建云端收藏夹", "创建后可在这里选择", Icons.Outlined.CreateNewFolder, { create = true }) }
                 }
+            }
             }
         }
     }

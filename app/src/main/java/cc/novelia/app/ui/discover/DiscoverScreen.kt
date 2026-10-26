@@ -39,6 +39,8 @@ import cc.novelia.app.ui.components.base.AppLazyColumn
 import cc.novelia.app.ui.components.base.AppScrollColumn
 import cc.novelia.app.ui.components.base.AppSheet
 import cc.novelia.app.ui.components.base.AsyncContent
+import cc.novelia.app.ui.components.base.CachedAsyncContent
+import cc.novelia.app.ui.components.base.rememberCachedListState
 import cc.novelia.app.ui.components.base.ChoiceRow
 import cc.novelia.app.ui.components.base.CharacterCountFilterFields
 import cc.novelia.app.ui.components.base.NovelLocalFilterSaver
@@ -114,11 +116,10 @@ import kotlinx.coroutines.sync.withPermit
             val page = pageNumbers[section]
             Column(Modifier.fillMaxSize()) {
                 if(section == 0) {
-                    val recommendationScroll = rememberLazyListState()
                     val requestKey = listOf("recommend", binding, profile?.canEdit, local.blockedAuthors, cacheGeneration)
-                    AsyncContent(requestKey, load = { coroutineScope { val web = async { c.api.webList(0, sort = 1) }; val wenku = async { c.api.wenkuList(0) }; enrichAuthors(web.await().items.map { it.card() }, c, local.blockedAuthors) to enrichAuthors(wenku.await().items.map { it.card() }, c, local.blockedAuthors) } },
-                        initialResult = c.discoverRecommendations?.takeIf { it.first == requestKey }?.second,
-                        onLoaded = { c.discoverRecommendations = requestKey to it }, revealContent = true) { (web, wenku), refresh ->
+                    val recommendationScroll = rememberCachedListState(c.uiResults.recommendations, requestKey)
+                    CachedAsyncContent(c.uiResults.recommendations, requestKey, load = { coroutineScope { val web = async { c.api.webList(0, sort = 1) }; val wenku = async { c.api.wenkuList(0) }; enrichAuthors(web.await().items.map { it.card() }, c, local.blockedAuthors) to enrichAuthors(wenku.await().items.map { it.card() }, c, local.blockedAuthors) } },
+                        validate = { c.session.ensureCurrent(binding) }, revealContent = true, pullToRefreshEnabled = true) { (web, wenku), refresh ->
                         val visibleWeb = remember(web, local.blockedBooks, local.blockedTags, local.blockedAuthors) { web.asSequence().filter { visibleBook(it, local) }.take(8).toList() }
                         val visibleWenku = remember(wenku, local.blockedBooks, local.blockedTags, local.blockedAuthors) { wenku.asSequence().filter { visibleBook(it, local) }.take(6).toList() }
                         AppLazyColumn(state = recommendationScroll, contentPadding = PaddingValues(bottom = 20.dp), onPageTurn = onPageTurn) {
@@ -172,19 +173,18 @@ import kotlinx.coroutines.sync.withPermit
                     val conditions = if(section == 1) listOf(source, type, translate, sort, effectiveWebLevel, localFilter)
                         else listOf(effectiveWenkuLevel)
                     val requestKey = listOf(section, page, submitted, conditions, binding, profile?.canEdit,
-                        local.blockedAuthors, searchRevision, local.blockedBooks, local.blockedTags, cacheGeneration)
-                    val resultScroll = key(requestKey) { rememberLazyListState() }
+                        local.blockedAuthors, local.blockedBooks, local.blockedTags, cacheGeneration)
+                    val resultScroll = rememberCachedListState(c.uiResults.discoverPages, requestKey)
                     if(section == 1 && localFilter.active) FilteredNovelList(c, requestKey, localFilter, local,
                         loadPage = { next, refresh -> c.filteredWebList(next, submitted, source, type, effectiveWebLevel, translate, sort, refresh) },
-                        onReset = ::resetFilters, keywordLabels = keywordLabels, onPageTurn = onPageTurn)
-                    else AsyncContent(requestKey, load = {
+                        onReset = ::resetFilters, keywordLabels = keywordLabels, onPageTurn = onPageTurn, refreshKey = searchRevision)
+                    else CachedAsyncContent(c.uiResults.discoverPages, requestKey, refreshKey = searchRevision, load = {
                         if(section == 1) c.api.webList(page, submitted, source, type, effectiveWebLevel, translate, sort).let {
                             Page(it.pageNumber, enrichAuthors(it.items.map(WebOutline::card), c, local.blockedAuthors))
                         } else c.api.wenkuList(page, submitted, effectiveWenkuLevel).let {
                             Page(it.pageNumber, enrichAuthors(it.items.map(WenkuOutline::card), c, local.blockedAuthors))
                         }
-                    }, initialResult = c.discoverPages[section]?.takeIf { it.first == requestKey }?.second,
-                        onLoaded = { c.discoverPages[section] = requestKey to it }, revealContent = true) { result, refresh ->
+                    }, validate = { c.session.ensureCurrent(binding) }, revealContent = true, pullToRefreshEnabled = true) { result, refresh ->
                         val books = remember(result.items, local.blockedBooks, local.blockedTags, local.blockedAuthors) { result.items.filter { visibleBook(it, local) } }
                         val emptyContent: @Composable () -> Unit = {
                             Column {
@@ -196,8 +196,12 @@ import kotlinx.coroutines.sync.withPermit
                         }
                         if(section == 2) key(requestKey) {
                             DiscoverWenkuResults(books, local.discoverWenkuGrid, { c.book(it.ref) },
+                                listScroll = resultScroll, gridScroll = rememberCachedListState(c.uiResults.discoverPages, requestKey, "grid"),
                                 keywordLabels = keywordLabels, onPageTurn = onPageTurn, emptyContent = emptyContent,
-                                footer = { PageControls(page, result.pageNumber) { setPage(section, it) } })
+                                footer = {
+                                    PageControls(page, result.pageNumber) { setPage(section, it) }
+                                    AppTextButton(onClick = refresh, Modifier.fillMaxWidth()) { Text("刷新结果") }
+                                })
                         } else AppLazyColumn(state = resultScroll, onPageTurn = onPageTurn) {
                             if(books.isEmpty()) item { emptyContent() }
                             items(books, key = { it.ref.key }, contentType = { "book" }) {
@@ -206,6 +210,7 @@ import kotlinx.coroutines.sync.withPermit
                                     keywordLabels = keywordLabels)
                             }
                             item { PageControls(page, result.pageNumber) { setPage(section, it) } }
+                            item { AppTextButton(onClick = refresh, Modifier.fillMaxWidth()) { Text("刷新结果") } }
                         }
                     }
                 }
@@ -293,9 +298,9 @@ internal suspend fun enrichAuthors(books: List<BookCard>, c: AppController, bloc
             val needsCharacters = characters && !book.ref.isWenku && !book.ref.isLocal && (book.totalCharacters == null || forceNetwork)
             if(!needsAuthors && !needsCharacters) book else limit.withPermit {
                 try {
-                    if(book.ref.isWenku) book.copy(authors = c.detail<WenkuDetail>("wenku/${book.ref.id}").authors)
+                    if(book.ref.isWenku) book.copy(authors = c.wenkuDetail(book.ref).authors)
                     else if(characters) c.filterBookMetadata(book, forceNetwork)
-                    else c.detail<WebDetail>("novel/${book.ref.key}").let { detail ->
+                    else c.webDetail(book.ref).let { detail ->
                         book.copy(authors = detail.authors.map { it.name }, totalCharacters = detail.totalCharacters?.takeIf { it >= 0 } ?: book.totalCharacters)
                     }
                 } catch(e: CancellationException) { throw e }

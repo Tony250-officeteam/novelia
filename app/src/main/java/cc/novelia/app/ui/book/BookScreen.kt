@@ -43,6 +43,7 @@ import cc.novelia.app.ui.components.base.AppAlertDialog
 import cc.novelia.app.ui.components.base.AppDropdownMenu
 import cc.novelia.app.ui.components.base.AppLazyColumn
 import cc.novelia.app.ui.components.base.AsyncContent
+import cc.novelia.app.ui.components.base.CachedAsyncContent
 import cc.novelia.app.ui.components.book.BookCover
 import cc.novelia.app.ui.components.base.EmptyState
 import cc.novelia.app.ui.components.base.MenuRow
@@ -82,7 +83,9 @@ import kotlinx.coroutines.withContext
     var menu by remember { mutableStateOf(false) }; var favorite by remember { mutableStateOf<Pair<BookCard, Boolean>?>(null) }; var download by remember { mutableStateOf<BookCard?>(null) }; var version by remember { mutableIntStateOf(0) }
     val state by c.store.state.collectAsStateWithLifecycle(); val profile by c.session.profile.collectAsStateWithLifecycle()
     val localSaved = remember(state.books, ref) { state.books.any { it.book.ref == ref } }
-    val refreshKey = listOf(version, state.syncStatus[profile?.username]?.lastSuccessAt ?: 0L)
+    val cacheGeneration by c.store.cacheGeneration.collectAsStateWithLifecycle()
+    val detailKey = c.detailKey(if(ref.isWenku) "wenku/${ref.id}" else "novel/${ref.key}").copy(generation = cacheGeneration)
+    val refreshKey = version
     LaunchedEffect(ref, profile?.username) { favorite = null }
     var progressChoice by remember { mutableStateOf<Pair<ReadingDestination, ReadingDestination>?>(null) }
     var uploadBusy by remember { mutableStateOf(false) }
@@ -98,7 +101,9 @@ import kotlinx.coroutines.withContext
             DropdownMenuItem({ Text("屏蔽这本书") }, { c.store.update { it.copy(blockedBooks = it.blockedBooks + ref.key) }; c.message("已从发现列表中屏蔽"); menu = false }, leadingIcon = { Icon(Icons.Outlined.Block, null) })
         } }
     }) { padding ->
-        if(ref.isWenku) AsyncContent(listOf(ref, profile?.username), refreshKey = refreshKey, load = { c.detail<WenkuDetail>("wenku/${ref.id}", forceNetwork = version > 0) }, modifier = Modifier.padding(padding), revealContent = true) { detail, _ ->
+        if(ref.isWenku) CachedAsyncContent(c.uiResults.wenkuDetails, detailKey, refreshKey = refreshKey,
+            load = { c.detail<WenkuDetail>("wenku/${ref.id}", forceNetwork = version > 0 || c.uiResults.wenkuDetails.snapshot(detailKey) != null) },
+            modifier = Modifier.padding(padding), validate = { c.session.ensureCurrent(detailKey.binding) }, revealContent = true) { detail, _ ->
             val book = remember(detail, ref) { detail.card(ref) }
             val favoriteState = bookFavoriteState(ref, localSaved, detail.favored, profile?.username, state.pending)
             val refresh: () -> Unit = { version++ }
@@ -129,7 +134,9 @@ import kotlinx.coroutines.withContext
                         2 -> NovelCommentsPanel(c, "wenku-${ref.id}")
                     }
             }
-        } else AsyncContent(listOf(ref, profile?.username), refreshKey = refreshKey, load = { c.detail<WebDetail>("novel/${ref.key}", forceNetwork = version > 0) }, modifier = Modifier.padding(padding), revealContent = true) { detail, _ ->
+        } else CachedAsyncContent(c.uiResults.webDetails, detailKey, refreshKey = refreshKey,
+            load = { c.detail<WebDetail>("novel/${ref.key}", forceNetwork = version > 0 || c.uiResults.webDetails.snapshot(detailKey) != null) },
+            modifier = Modifier.padding(padding), validate = { c.session.ensureCurrent(detailKey.binding) }, revealContent = true) { detail, _ ->
             val book = remember(detail, ref, profile?.username) { detail.card(ref, profile?.username) }
             LaunchedEffect(book) {
                 c.store.update { it.withCloudReadingMetadata(listOf(book), c.session.profile.value?.username) }

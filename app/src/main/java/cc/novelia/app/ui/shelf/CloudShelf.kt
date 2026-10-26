@@ -30,6 +30,8 @@ import cc.novelia.app.data.network.CloudWebFilter
 import cc.novelia.app.data.network.cloudFavorites
 import cc.novelia.app.data.network.cloudFolderChoices
 import cc.novelia.app.ui.components.base.AsyncContent
+import cc.novelia.app.ui.components.base.CachedAsyncContent
+import cc.novelia.app.ui.components.base.rememberCachedListState
 import cc.novelia.app.ui.components.book.rememberCloudBookMetadata
 import cc.novelia.app.ui.components.base.ConfirmDialog
 import cc.novelia.app.ui.components.base.EmptyState
@@ -68,7 +70,6 @@ import cc.novelia.app.ui.navigation.AppController
     var managing by remember { mutableStateOf(false) }
     var selection by remember { mutableStateOf(mapOf<String, BookCard>()) }
     var bulkBusy by remember { mutableStateOf(false) }
-    var bulkRefreshAt by remember { mutableLongStateOf(0L) }
     var bulkProgress by remember { mutableIntStateOf(0) }
     var bulkLocal by remember { mutableStateOf<List<BookCard>?>(null) }
     var bulkRemoval by remember { mutableStateOf<Pair<String, List<BookCard>>?>(null) }
@@ -80,9 +81,8 @@ import cc.novelia.app.ui.navigation.AppController
     }
     // 行内重试或后台重试可能独立于本页菜单回调完成；
     // 成功后刷新远端结果，由 AsyncContent 保留当前视口。
-    val refreshKey = listOf(version, if(bulkBusy) bulkRefreshAt else local.syncStatus[account]?.lastSuccessAt ?: 0L)
+    val refreshKey = version
     val foldersKey = listOf(binding, cacheGeneration)
-    val foldersCacheKey = listOf(foldersKey, refreshKey)
     LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { expanded = false }
     val focus = LocalFocusManager.current
     val path = if (kind == 0) "user/favored-web" else "user/favored-wenku"
@@ -91,9 +91,8 @@ import cc.novelia.app.ui.navigation.AppController
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val filterHeight = maxHeight * .9f
-        AsyncContent(foldersKey, load = { c.api.get<CloudFolders>("user/favored") }, refreshKey = refreshKey,
-            initialResult = c.cloudFolders?.takeIf { it.first == foldersCacheKey }?.second,
-            onLoaded = { c.cloudFolders = foldersCacheKey to it }) { folders, refresh ->
+        CachedAsyncContent(c.uiResults.folders, foldersKey, load = { c.api.get<CloudFolders>("user/favored") }, refreshKey = refreshKey,
+            observeInvalidation = !bulkBusy, validate = { c.session.ensureCurrent(binding) }) { folders, _ ->
             val realFolders = if (kind == 0) folders.favoredWeb else folders.favoredWenku
             val choices = cloudFolderChoices(realFolders)
             val current = choices.find { it.id == folderId } ?: choices.firstOrNull()
@@ -102,8 +101,7 @@ import cc.novelia.app.ui.navigation.AppController
             }
             val editable = current?.takeUnless { it.id == ALL_CLOUD_FAVORITES }
             val requestKey = listOf(binding, cacheGeneration, kind, current?.id, page, sort, if(kind == 0) filter else null)
-            val pageCacheKey = listOf(requestKey, refreshKey)
-            val cachedPage = c.cloudShelfPage?.takeIf { it.first == pageCacheKey }?.second
+            val cachedPage = c.uiResults.cloudPages.snapshot(requestKey)?.value
             var pageCount by remember(requestKey) { mutableStateOf(cachedPage?.items?.size) }
             var controlsHeight by remember { mutableIntStateOf(0) }
             Column(Modifier.fillMaxSize()) {
@@ -121,15 +119,16 @@ import cc.novelia.app.ui.navigation.AppController
                         DropdownMenuItem({ Text("重命名收藏夹") }, { close(); rename = editable })
                         if(editable.id != "default") DropdownMenuItem({ Text("删除收藏夹") }, { close(); deleting = editable })
                     }
-                    DropdownMenuItem({ Text("刷新收藏夹") }, { close(); refresh() }, leadingIcon = { Icon(Icons.Outlined.Refresh, null) })
+                    DropdownMenuItem({ Text("刷新收藏夹") }, { close(); version++ }, leadingIcon = { Icon(Icons.Outlined.Refresh, null) })
                 }
                 if(current == null) EmptyState("创建第一个云端收藏夹", "收藏夹与原站同步。", action = "新建收藏夹", onAction = { create = true })
                 else {
-                    val listState = key(requestKey) { rememberLazyListState() }
-                    AsyncContent(requestKey, refreshKey = refreshKey, modifier = Modifier.weight(1f), load = {
+                    val listState = rememberCachedListState(c.uiResults.cloudPages, requestKey)
+                    val gridState = rememberCachedListState(c.uiResults.cloudPages, requestKey, "grid")
+                    CachedAsyncContent(c.uiResults.cloudPages, requestKey, refreshKey = refreshKey, modifier = Modifier.weight(1f), load = {
                         c.api.cloudFavorites(kind == 1, current.id, page, sort, filter)
-                    }, initialResult = cachedPage,
-                        onLoaded = { pageCount = it.items.size; c.cloudShelfPage = pageCacheKey to it }) { result, retry ->
+                    }, observeInvalidation = !bulkBusy, validate = { c.session.ensureCurrent(binding) },
+                        onLoaded = { pageCount = it.items.size }) { result, retry ->
                         LaunchedEffect(result.items, account) {
                             if(c.session.profile.value?.username != account) return@LaunchedEffect
                             c.store.update { it.withCloudReadingMetadata(result.items, account) }
@@ -138,7 +137,7 @@ import cc.novelia.app.ui.navigation.AppController
                             managing, { managing = it; if(it) { expanded = false; focus.clearFocus() } }, selection, { selection = it },
                             bulkBusy, bulkProgress, active, controlsHeight, selectedBookKey,
                             onOpenBook = { expanded = false; onOpenBook(it) }, onLocal = { bulkLocal = selection.values.toList() },
-                            onRemove = { bulkRemoval = current.id to selection.values.toList() }, onRetry = retry, grid = local.cloudShelfGrid,
+                            onRemove = { bulkRemoval = current.id to selection.values.toList() }, onRetry = retry, grid = local.cloudShelfGrid, gridState = gridState,
                             metadata = { rememberCloudBookMetadata(c, it, account, refreshKey) }, actions = { displayed, canAct ->
                                 val book = displayed
                                 val cancelling = pendingFavoriteAction(local.pending, account, book.ref)?.method == "DELETE"
@@ -165,7 +164,6 @@ import cc.novelia.app.ui.navigation.AppController
             { bulkRemoval = null }, confirmLabel = "取消云端收藏") {
             val binding = c.session.capture()
             // 一批完成后统一刷新，避免每本成功都触发列表与元数据请求。
-            bulkRefreshAt = local.syncStatus[account]?.lastSuccessAt ?: 0L
             bulkBusy = true; bulkProgress = 0; expanded = false
             c.action {
                 try {

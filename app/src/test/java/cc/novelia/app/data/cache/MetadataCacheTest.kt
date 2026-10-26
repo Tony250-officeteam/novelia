@@ -11,6 +11,19 @@ class MetadataCacheTest {
     private val firstKey = "a".repeat(64)
     private val secondKey = "b".repeat(64)
 
+    @Test fun targetedRemovalSurvivesRestartAndPreservesUnrelatedMetadata() {
+        val cache = MetadataCache(temporary.root)
+        cache.write(firstKey, "first", fetchedAt = 1_000)
+        cache.write(secondKey, "second", fetchedAt = 1_000)
+        cache.read(firstKey, now = 2_000)
+        cache.remove(firstKey)
+        assertNull(cache.read(firstKey, now = 2_000))
+        assertEquals(6L, cache.size())
+        val restored = MetadataCache(temporary.root)
+        assertNull(restored.read(firstKey, now = 2_000))
+        assertEquals("second", restored.read(secondKey, now = 2_000))
+    }
+
     @Test fun freshResponseExpiresAndCanStillBeReadOffline() {
         val cache = MetadataCache(temporary.root)
         cache.write(firstKey, "中文缓存")

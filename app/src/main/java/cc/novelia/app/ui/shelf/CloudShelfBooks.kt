@@ -28,6 +28,7 @@ import cc.novelia.app.ui.components.book.bookRowStatus
     busy: Boolean, progress: Int, active: Boolean, controlsHeight: Int, selectedBookKey: String?,
     onOpenBook: (BookRef) -> Unit, onLocal: () -> Unit, onRemove: () -> Unit, onRetry: () -> Unit,
     grid: Boolean = false,
+    gridState: LazyListState? = null,
     metadata: @Composable (BookCard) -> BookCard = { it }, actions: @Composable (BookCard, () -> Boolean) -> Unit = { _, _ -> },
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -35,7 +36,7 @@ import cc.novelia.app.ui.components.book.bookRowStatus
     val keys = books.map { it.ref.key }
     val columns = shelfGridColumns(maxWidth)
     val gridRows = remember(books, columns) { books.chunked(columns) }
-    val layout = rememberShelfLayoutState(grid, keys, keys, columns, listState = listState)
+    val layout = rememberShelfLayoutState(grid, keys, keys, columns, listState = listState, restoredGridState = gridState)
     val gridHit = rememberShelfGridHitTest(layout.grid, gridRows.map { row -> row.map { it.ref.key } }, columns)
     val dragSelection = rememberShelfDragSelection(layout.current(grid), keys, selection.keys, managing, active && !busy,
         onBegin = { onManaging(true) }, onSelection = { chosen ->

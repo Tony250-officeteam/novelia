@@ -19,6 +19,9 @@ import cc.novelia.app.ui.components.base.AppLazyColumn
 import cc.novelia.app.ui.components.base.AppScrollColumn
 import cc.novelia.app.ui.components.base.AppSheet
 import cc.novelia.app.ui.components.base.AsyncContent
+import cc.novelia.app.ui.components.base.CachedAsyncContent
+import cc.novelia.app.ui.components.base.rememberCachedListState
+import cc.novelia.app.ui.components.base.AppTextButton
 import cc.novelia.app.ui.components.book.BookRow
 import cc.novelia.app.ui.components.base.ChoiceRow
 import cc.novelia.app.ui.components.base.EmptyState
@@ -39,21 +42,27 @@ private val syosetuGenres = listOf("恋爱：异世界", "恋爱：现实世界"
     val states = if(source == 0) listOf("全部", "短篇", "连载", "完结") else listOf("全部", "长篇", "短篇")
     val genres = if(source == 1) kakuyomuGenres else if(kind == 2) listOf("恋爱", "幻想", "文学/科幻/其他") else syosetuGenres
     val params = buildMap { put("range", ranges[range]); put("status", states[status]); if(source == 0) { put("type", listOf("流派", "综合", "异世界转生/转移")[kind]); put("page", "${page + 1}") }; if(source == 1 || kind != 1) put("genre", genres[genre]) }
-    val requestKey = listOf(provider, params, c.session.capture(), profile?.canEdit, local.blockedAuthors, cacheGeneration)
+    val binding = c.session.capture()
+    val requestKey = listOf(provider, params, binding, profile?.canEdit, local.blockedAuthors, cacheGeneration)
     Screen("排行榜", c::back, actions = { AppIconButton(onClick = { filters = true }) { Icon(Icons.Outlined.Tune, "榜单条件") } }) { padding ->
         Column(Modifier.padding(padding)) {
             ChoiceRow("平台", listOf("成为小说家吧", "Kakuyomu"), source) { source = it; range = 0; genre = 0; status = 0; page = 0 }
             MotionContent(listOf(source, kind, genre, range, status), animateInitial = false) { Text("${params["type"] ?: genres[genre]} · ${ranges[range]} · ${states[status]}", Modifier.padding(horizontal = 20.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge) }
-            AsyncContent(requestKey, load = {
+            val scroll = rememberCachedListState(c.uiResults.ranks, requestKey)
+            CachedAsyncContent(c.uiResults.ranks, requestKey, load = {
                 c.api.get<Page<WebOutline>>("novel/rank/$provider", params).let {
                     Page(it.pageNumber, enrichAuthors(it.items.map(WebOutline::card), c, local.blockedAuthors))
                 }
-            }, initialResult = c.rankPage?.takeIf { it.first == requestKey }?.second,
-                onLoaded = { c.rankPage = requestKey to it }) { result, _ ->
+            }, validate = { c.session.ensureCurrent(binding) }, pullToRefreshEnabled = true) { result, refresh ->
                 val cards = remember(result.items, local.blockedBooks, local.blockedTags, local.blockedAuthors) {
                     result.items.filter { visibleBook(it, local) }
                 }
-                AppLazyColumn { if(cards.isEmpty()) item { EmptyState("这个榜单暂时没有作品", "可以切换周期或流派；榜单数据由原站获取。") }; items(cards, key = { it.ref.key }, contentType = { "book" }) { book -> BookRow(book, { c.book(book.ref) }, showReadingProgress = false) }; item { PageControls(page, result.pageNumber) { page = it } } }
+                AppLazyColumn(state = scroll) {
+                    if(cards.isEmpty()) item { EmptyState("这个榜单暂时没有作品", "可以切换周期或流派；榜单数据由原站获取。") }
+                    items(cards, key = { it.ref.key }, contentType = { "book" }) { book -> BookRow(book, { c.book(book.ref) }, showReadingProgress = false) }
+                    item { PageControls(page, result.pageNumber) { page = it } }
+                    item { AppTextButton(onClick = refresh, Modifier.fillMaxWidth()) { Text("刷新榜单") } }
+                }
             }
         }
     }

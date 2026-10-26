@@ -15,6 +15,19 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ForumReplyPageCacheTest {
+    @Test fun leavingDiscussionReusesCompletedRepliesButChangingIdentityDoesNot() = kotlinx.coroutines.runBlocking {
+        val shared = cc.novelia.app.data.cache.UiResultCache<ForumPage<ForumComment>>()
+        val first = ForumReplyPageCache(this, shared = shared, identity = "post:alice")
+        first.load(8, 1) { result("已读的第二页") }
+        first.close()
+        val returning = ForumReplyPageCache(this, shared = shared, identity = "post:alice")
+        val otherAccount = ForumReplyPageCache(this, shared = shared, identity = "post:bob")
+        try {
+            assertEquals("已读的第二页", returning.load(8, 1) { error("不应重取已读页") }.items.single().content)
+            assertNull(otherAccount.peek(8, 1))
+        } finally { returning.close(); otherAccount.close() }
+    }
+
     private fun result(content: String, total: Long = 21) = ForumPage(total, listOf(ForumComment(
         12, postId = 5, rootId = 8, content = content, authorId = 42, authorUsername = "回复者", status = 0,
         createdAt = "2026-09-30T00:00:00Z", updatedAt = "2026-09-30T00:00:00Z")))

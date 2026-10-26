@@ -51,6 +51,8 @@ benchmark 模块最低 API 28。`ReadingBenchmark` 使用 `CompilationMode.Parti
 
 当前值得关注的路径包括元数据热缓存、章节批量缓存、两路下载调度、正文投影和分页测量。先用对应场景验证假设，再调整算法；不要通过取消校验或无限缓存改善数字。
 
+页面缓存回归使用 `UiResultCacheTest`、`MetadataMutationTest`、`MetadataCacheTest` 和 `ForumReplyPageCacheTest`，检查翻页复用、过期、容量、账号/书源隔离及迟到响应。设备上的 `CachedAsyncContentTest` 检查翻页和重建时的请求次数、滚动恢复、刷新失败保留内容以及权限错误清除旧内容。JVM 结果与设备测试源码编译不能替代实际设备上的界面验证。
+
 ## Profile 与提交结果
 
 生成方法及源码移动后的处理见 [Profile 维护](baseline-profiles.md)。普通构建关闭自动采集，手工过滤失效描述符不等于重新采集。

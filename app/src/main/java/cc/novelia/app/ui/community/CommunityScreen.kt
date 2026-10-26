@@ -31,6 +31,8 @@ import cc.novelia.app.data.model.Page
 import cc.novelia.app.ui.components.base.AppLazyColumn
 import cc.novelia.app.ui.components.base.AppSheet
 import cc.novelia.app.ui.components.base.AsyncContent
+import cc.novelia.app.ui.components.base.CachedAsyncContent
+import cc.novelia.app.ui.components.base.rememberCachedListState
 import cc.novelia.app.ui.components.base.EmptyState
 import cc.novelia.app.ui.components.base.FilterPanelVisibility
 import cc.novelia.app.ui.components.base.PageControls
@@ -48,30 +50,34 @@ import cc.novelia.app.ui.theme.motionClickable
     val cacheGeneration by c.store.cacheGeneration.collectAsStateWithLifecycle()
     val source = c.forumSession.capture()
     val categoriesKey = listOf("forum-categories", source.source, source.sourceRevision, cacheGeneration)
-    AsyncContent(categoriesKey, load = {
+    CachedAsyncContent(c.uiResults.categories, categoriesKey, load = {
         // 分类是公开元数据。初次加载碰到自动登录时重取一次，保留已显示的社区导航状态。
         try { c.forumApi.categories() }
         catch(_: SessionChangedException) { c.forumApi.categories() }
-    }, initialResult = c.forumCategories?.takeIf { it.first == categoriesKey }?.second,
-        onLoaded = { c.forumCategories = categoriesKey to it }) { available, _ ->
+    }) { available, _ ->
         if(available.isEmpty()) EmptyState("论坛还没有分类", "测试站正在准备内容。", Icons.Outlined.Forum)
         else ForumCommunity(c, available)
     }
 }
 @Composable private fun ForumCommunity(c: AppController, available: List<ForumCategory>) {
-    var category by rememberSaveable { mutableStateOf(available.first().slug) }; var page by rememberSaveable { mutableIntStateOf(0) }; var search by rememberSaveable { mutableStateOf("") }
+    var category by rememberSaveable { mutableStateOf(available.first().slug) }; var search by rememberSaveable { mutableStateOf("") }
+    var pageNumbers by rememberSaveable { mutableStateOf(mapOf<String, Int>()) }
+    var tagIds by rememberSaveable { mutableStateOf(mapOf<String, Long>()) }
     var source by rememberSaveable { mutableIntStateOf(0) }
+    val pageKey = "$category:$source"
+    fun setPage(value: Int) { pageNumbers = pageNumbers + (pageKey to value) }
     var sort by rememberSaveable { mutableStateOf(ForumSort.ACTIVE) }
     var searchExpanded by rememberSaveable { mutableStateOf(false) }
     var tagsExpanded by rememberSaveable { mutableStateOf(false) }
-    var tagId by rememberSaveable(category) { mutableStateOf<Long?>(null) }
+    val tagId = tagIds[category]
+    fun setTag(value: Long?) { tagIds = if(value == null) tagIds - category else tagIds + (category to value) }
     val availableTags = available.firstOrNull { it.slug == category }?.tags.orEmpty()
     val selectedTagId = tagId?.takeIf { id -> availableTags.any { it.id == id } }
     LaunchedEffect(availableTags) {
-        if(tagId != null && availableTags.none { it.id == tagId }) { tagId = null; page = 0 }
+        if(tagId != null && availableTags.none { it.id == tagId }) { setTag(null); setPage(0) }
     }
     LaunchedEffect(available) {
-        if(available.none { it.slug == category }) { category = available.first().slug; page = 0 }
+        if(available.none { it.slug == category }) { category = available.first().slug }
     }
     val profile by c.forumSession.profile.collectAsStateWithLifecycle()
     val forumBinding = c.forumSession.capture()
@@ -93,7 +99,7 @@ import cc.novelia.app.ui.theme.motionClickable
     }
     val state by c.store.state.collectAsStateWithLifecycle()
     var draftBoxOpen by rememberSaveable { mutableStateOf(false) }
-    fun showFeed(value: Int) { source = value; page = 0 }
+    fun showFeed(value: Int) { source = value }
     Screen("社区", actions = {
         AppIconButton(onClick = { draftBoxOpen = true }) { Icon(Icons.Outlined.Drafts, "帖子草稿箱") }
         AppIconButton(onClick = { c.go("compose") }) { Icon(Icons.Outlined.Edit, "新建帖子草稿") }
@@ -112,35 +118,33 @@ import cc.novelia.app.ui.theme.motionClickable
         Column(Modifier.padding(padding).fillMaxSize()) {
             ForumRulesReminder(c)
             ForumCategoryPager(available, category, { next ->
-                if(category != next) { category = next; tagId = null }
-                page = 0; source = 0
+                category = next; source = 0
             }, Modifier.weight(1f), controls = {
                 ForumFeedControls(when(source) { 1 -> "云端收藏"; 2 -> "我的帖子"; else -> "全部帖子" },
                     search, searchExpanded,
                     if(source == 0) "搜索论坛帖子" else "在本页文章中查找",
-                    onExpanded = { searchExpanded = it }, onSearch = { search = it; page = 0 }) {
+                    onExpanded = { searchExpanded = it }, onSearch = { search = it; pageNumbers = emptyMap() }) {
                     if(source == 0 && availableTags.isNotEmpty()) ForumTagFilterToggle(tagsExpanded,
                         availableTags.firstOrNull { it.id == selectedTagId }?.name) { tagsExpanded = !tagsExpanded }
-                    if(source == 0) ForumSortPicker(sort) { sort = it; page = 0 }
+                    if(source == 0) ForumSortPicker(sort) { sort = it; pageNumbers = emptyMap() }
                     else AppTextButton(onClick = { showFeed(0) }) { Text("返回全部帖子") }
                 }
                 FilterPanelVisibility(source == 0 && tagsExpanded) {
-                    ForumTagFilter(availableTags, selectedTagId) { tagId = it; page = 0 }
+                    ForumTagFilter(availableTags, selectedTagId) { setTag(it); setPage(0) }
                 }
             }) { pageCategory ->
-                // 预加载相邻分类时只取第一页，不能带入当前分类的标签、页码或个人列表。
+                // 邻页使用自身保存的浏览条件，切回分类后继续上次阅读。
                 val active = pageCategory.slug == category
-                val feedPage = if(active) page else 0
                 val feedSource = if(active) source else 0
-                val feedTagId = selectedTagId.takeIf { active }
+                val feedPage = pageNumbers["${pageCategory.slug}:$feedSource"] ?: 0
+                val feedTagId = tagIds[pageCategory.slug]?.takeIf { id -> pageCategory.tags.any { it.id == id } }
                 val settledSearch = rememberDebouncedQuery(search)
                 val requestKey = listOf(pageCategory.slug, feedPage, settledSearch, feedSource, sort, feedTagId,
                     forumBinding, profile?.role, blacklistRevision, cacheGeneration)
-                val scroll = key(requestKey) { rememberLazyListState() }
-                AsyncContent(requestKey, load = {
+                val scroll = rememberCachedListState(c.forumPages, requestKey)
+                CachedAsyncContent(c.forumPages, requestKey, load = {
                     when(feedSource) { 1 -> c.forumApi.favorites(feedPage); 2 -> c.forumApi.myPosts(feedPage); else -> c.forumApi.posts(feedPage, pageCategory.slug, settledSearch, sort.visibleSort.apiValue, listOfNotNull(feedTagId)) }
-                }, initialResult = c.forumPages[requestKey], onLoaded = {
-                    c.forumPages.put(requestKey, it)
+                }, validate = { c.forumSession.ensureCurrent(forumBinding) }, onLoaded = {
                     // 顶部刷新后显示新插入的帖子，不让旧首项的稳定 key 把视口推到下方。
                     if(!scroll.canScrollBackward) scroll.requestScrollToItem(0)
                 },
@@ -149,7 +153,7 @@ import cc.novelia.app.ui.theme.motionClickable
                         result.items.filter { (feedSource == 0 || it.title.contains(settledSearch, true)) && !it.authorBlocked && it.authorUsername !in state.blockedUsers }
                             .map { it.article(available, if(feedSource == 0) feedTagId else null) }
                     }
-                    ArticleList(c, Page(result.pageCount(), articles), feedPage, { if(active) page = it }, scroll, refresh)
+                    ArticleList(c, Page(result.pageCount(), articles), feedPage, { if(active) setPage(it) }, scroll, refresh)
                 }
             }
         }

@@ -67,12 +67,16 @@ internal class ShelfLayoutState(val list: LazyListState, val grid: LazyListState
     grid: Boolean, listKeys: List<String>, gridKeys: List<String>, columns: Int,
     parents: Map<String, String> = emptyMap(), leadingItems: Int = 0,
     listState: LazyListState = rememberLazyListState(),
+    restoredGridState: LazyListState? = null,
 ): ShelfLayoutState {
-    val gridState = rememberLazyListState()
+    val gridState = restoredGridState ?: rememberLazyListState()
     var previousList by remember { mutableStateOf(listState) }
     LaunchedEffect(listState) {
-        // 云端换页／筛选时重置网格；不要用列表对象的 identity 作 saveable key，否则重建后会丢失位置。
-        if(previousList !== listState) { gridState.scrollToItem(0); previousList = listState }
+        // 未提供分页快照时保留原有重置规则；云端已恢复的网格不能再被重置到顶部。
+        if(previousList !== listState) {
+            if(restoredGridState == null) gridState.scrollToItem(0)
+            previousList = listState
+        }
     }
     val state = remember(listState, gridState) { ShelfLayoutState(listState, gridState) }
     var previousGrid by remember { mutableStateOf(grid) }

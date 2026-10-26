@@ -1,5 +1,8 @@
 package cc.novelia.app.data.community
 
+import cc.novelia.app.data.cache.UiResultCache
+import cc.novelia.app.data.cache.ReplyUiKey
+
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
@@ -10,7 +13,8 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 
 /** 页面内的回复缓存。每串保留最近三页；等待者被列表回收不会取消页面持有的请求。 */
-internal class ForumReplyPageCache(owner: CoroutineScope, private val pagesPerThread: Int = 3) {
+internal class ForumReplyPageCache(owner: CoroutineScope, private val pagesPerThread: Int = 3,
+    private val shared: UiResultCache<ForumPage<ForumComment>>? = null, private val identity: Any? = null) {
     init { require(pagesPerThread > 0) }
     private data class Key(val rootId: Long, val page: Int)
     private val job = SupervisorJob(owner.coroutineContext[Job])
@@ -19,10 +23,11 @@ internal class ForumReplyPageCache(owner: CoroutineScope, private val pagesPerTh
     private val requests = mutableMapOf<Key, Deferred<ForumPage<ForumComment>>>()
 
     @Synchronized fun peek(rootId: Long, page: Int): ForumPage<ForumComment>? =
-        if(job.isActive) pages[rootId]?.get(page) else null
+        if(job.isActive) pages[rootId]?.get(page) ?: shared?.snapshot(ReplyUiKey(identity, rootId, page))?.takeIf { it.fresh }?.value else null
 
     /** 只初始化尚未读取的讨论串；重组或晚到的旧列表不能覆盖独立回复请求。 */
     @Synchronized fun seedFirstPage(root: ForumComment): Boolean {
+        if(peek(root.id, 0) != null) return false
         val first = root.replies ?: return false
         if(!job.isActive || root.id <= 0 || root.rootId != null || pages.containsKey(root.id) ||
             requests.keys.any { it.rootId == root.id }) return false
@@ -46,7 +51,7 @@ internal class ForumReplyPageCache(owner: CoroutineScope, private val pagesPerTh
         val request = scope.async(start = CoroutineStart.LAZY) {
             // 可能在第一次查询缓存后、取得锁前，另一请求已经完成。
             peek(key.rootId, key.page)?.let { return@async it }
-            val result = loader()
+            val result = shared?.load(ReplyUiKey(identity, key.rootId, key.page), loader = loader) ?: loader()
             require(result.total >= 0)
             currentCoroutineContext().ensureActive()
             synchronized(this@ForumReplyPageCache) {
@@ -55,6 +60,7 @@ internal class ForumReplyPageCache(owner: CoroutineScope, private val pagesPerTh
                 thread.replaceAll { _, cached -> cached.copy(total = result.total) }
                 thread[key.page] = result
                 while(thread.size > pagesPerThread) thread.remove(thread.keys.first())
+                shared?.trimGroup(pagesPerThread) { it is ReplyUiKey && it.discussion == identity && it.rootId == key.rootId }
             }
             result
         }

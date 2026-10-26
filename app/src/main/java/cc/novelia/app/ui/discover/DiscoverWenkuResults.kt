@@ -51,10 +51,10 @@ import cc.novelia.app.ui.theme.motionClickable
     onPageTurn: (Int) -> Unit = {},
     emptyContent: @Composable () -> Unit = {},
     footer: @Composable () -> Unit = {},
+    listScroll: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState(),
+    gridScroll: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState(),
 ) {
     val reducedMotion = appReducedMotion()
-    val listScroll = rememberLazyListState()
-    val gridScroll = rememberLazyListState()
     val fontScale = LocalDensity.current.fontScale.coerceIn(1f, 1.3f)
     BoxWithConstraints(modifier.fillMaxSize()) {
         val gridColumns = ((maxWidth - 28.dp) / (172.dp * fontScale)).toInt().coerceAtLeast(2)

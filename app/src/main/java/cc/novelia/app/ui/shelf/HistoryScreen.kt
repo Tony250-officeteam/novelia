@@ -8,6 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -20,6 +21,9 @@ import cc.novelia.app.ui.account.ProfileDetailList
 import cc.novelia.app.ui.account.ProfileDetailCard
 import cc.novelia.app.ui.account.ProfileToggle
 import cc.novelia.app.ui.components.base.AsyncContent
+import cc.novelia.app.ui.components.base.CachedAsyncContent
+import cc.novelia.app.ui.components.base.AppTextButton
+import cc.novelia.app.ui.components.base.rememberCachedListState
 import cc.novelia.app.ui.components.book.BookRow
 import cc.novelia.app.ui.components.book.bookRowStatus
 import cc.novelia.app.ui.components.book.rememberCloudBookMetadata
@@ -34,9 +38,12 @@ import cc.novelia.app.ui.navigation.AppController
     val state by c.store.state.collectAsStateWithLifecycle(); val profile by c.session.profile.collectAsStateWithLifecycle()
     val history = remember(state.readingHistory) { state.readingHistory.entries.sortedByDescending { it.value.lastReadAt } }
     val booksByKey = remember(state.books) { state.books.associateBy { it.book.ref.key } }
-    var tab by remember { mutableIntStateOf(0) }; var page by remember { mutableIntStateOf(0) }; var version by remember { mutableIntStateOf(0) }; var clear by remember { mutableStateOf(false) }
+    var tab by rememberSaveable { mutableIntStateOf(0) }; var page by rememberSaveable { mutableIntStateOf(0) }; var version by remember { mutableIntStateOf(0) }; var clear by remember { mutableStateOf(false) }
+    val cacheGeneration by c.store.cacheGeneration.collectAsStateWithLifecycle()
+    val binding = c.session.capture()
+    val scroll = rememberCachedListState(c.uiResults.history, listOf("history-scroll", tab, if(tab == 0) 0 else page, c.session.capture(), cacheGeneration))
     fun pauseHistory(value: Boolean) { c.store.update { it.copy(historyPaused = value) }; if(profile != null) c.action { c.api.request(if(value) "PUT" else "DELETE", "user/read-history/paused") } }
-    ProfileDetailScreen("阅读历史", c::back, actions = { AppIconButton(onClick = { clear = true }) { Icon(Icons.Outlined.DeleteSweep, "清空历史") } }) { padding -> ProfileDetailList(Modifier.padding(padding)) {
+    ProfileDetailScreen("阅读历史", c::back, actions = { AppIconButton(onClick = { clear = true }) { Icon(Icons.Outlined.DeleteSweep, "清空历史") } }) { padding -> ProfileDetailList(Modifier.padding(padding), state = scroll) {
         item { ProfileChoiceRow("历史来源", listOf("此设备", "原站云端"), tab) { tab = it } }
         item { ProfileToggle("暂停阅读历史", "续读位置仍会保存", state.historyPaused, onChange = ::pauseHistory) }
         if(tab == 0) {
@@ -46,12 +53,12 @@ import cc.novelia.app.ui.navigation.AppController
                 ProfileDetailCard { BookRow(book.copy(subtitle = entry.chapterTitle), { c.read(book.ref, entry.chapterId) }) }
             }
         } else if(profile == null) item { ProfileEmptyState("登录以查看云端历史", "原站同步到章节，本设备还会保存段落位置。", action = "登录", onAction = { c.go("login") }) }
-        else item(key = "cloud-history") { AsyncContent(listOf(page, profile?.username), refreshKey = version, load = {
-            val binding = c.session.capture()
+        else item(key = "cloud-history") { CachedAsyncContent(c.uiResults.history, listOf(page, binding, profile?.role, cacheGeneration), refreshKey = version,
+            validate = { c.session.ensureCurrent(binding) }, load = {
             val result = c.api.get<Page<WebOutline>>("user/read-history", mapOf("page" to "$page", "pageSize" to "20"))
             c.session.ensureCurrent(binding)
             Page(result.pageNumber, result.items.map { it.card(binding.account) })
-        }) { result, _ ->
+        }) { result, refresh ->
             val cards = result.items
             LaunchedEffect(cards) { c.store.update { it.withCloudReadingMetadata(cards, c.session.profile.value?.username) } }
             // 云端每页最多 20 条，共用外层滚动，放大文字时仍能滚过筛选区。
@@ -63,6 +70,7 @@ import cc.novelia.app.ui.navigation.AppController
                         state.positions[book.ref.key], state.bookUpdates[book.ref.key], profile?.username, preferCloud = true)) }
                 } }
                 PageControls(page, result.pageNumber) { page = it }
+                AppTextButton(onClick = refresh) { Text("刷新历史") }
             }
         } }
     } }

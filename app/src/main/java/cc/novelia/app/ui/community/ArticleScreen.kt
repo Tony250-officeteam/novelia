@@ -22,6 +22,7 @@ import cc.novelia.app.data.auth.SessionChangedException
 import cc.novelia.app.data.storage.appJson
 import cc.novelia.app.ui.components.base.AppLazyColumn
 import cc.novelia.app.ui.components.base.AsyncContent
+import cc.novelia.app.ui.components.base.CachedAsyncContent
 import cc.novelia.app.ui.components.base.ConfirmDialog
 import cc.novelia.app.ui.components.base.Screen
 import cc.novelia.app.ui.components.base.displayDate
@@ -41,6 +42,7 @@ import kotlinx.coroutines.CancellationException
     val profile by session.profile.collectAsStateWithLifecycle()
     val binding = session.capture()
     val blacklistRevision by c.app.forumBlacklistRevision.collectAsStateWithLifecycle()
+    val cacheGeneration by c.store.cacheGeneration.collectAsStateWithLifecycle()
     val pendingFavoriteText = navigationState?.getStateFlow<String?>(FORUM_FAVORITE_REQUEST, null)?.collectAsStateWithLifecycle()?.value
     val pendingFavorite = remember(pendingFavoriteText) {
         pendingFavoriteText?.let { runCatching { appJson.decodeFromString<ForumFavoriteRequest>(it) }.getOrNull() }
@@ -48,7 +50,9 @@ import kotlinx.coroutines.CancellationException
     var tab by rememberSaveable(id) { mutableIntStateOf(0) }; var deletion by remember(id) { mutableStateOf<Article?>(null) }
     val tabState = rememberSaveableStateHolder()
     Screen("文章", c::back, actions = { AppIconButton(onClick = { c.share(ForumLinks.articleUrl(id)) }) { Icon(Icons.Outlined.Share, "分享文章") } }) { padding ->
-        AsyncContent(listOf(id, binding, profile?.userId, profile?.role), load = { c.article(id) }, modifier = Modifier.padding(padding), revealContent = true) { article, _ ->
+        CachedAsyncContent(c.uiResults.articles, listOf(id, binding, profile?.userId, profile?.role, cacheGeneration),
+            load = { c.article(id) }, modifier = Modifier.padding(padding), revealContent = true,
+            observeInvalidation = false, validate = { session.ensureCurrent(binding) }) { article, _ ->
             val now = rememberForumModificationTime(article.createAt)
             val favorite = remember(article, binding) { ForumFavoriteState(article.forumFavorited) }
             // 留在文章层，切换讨论标签或列表回收按钮后仍保留操作结果。
@@ -69,7 +73,6 @@ import kotlinx.coroutines.CancellationException
                 c.action(if(value) "已收藏到云端" else "已取消收藏") {
                     c.forumSession.ensureCurrent(binding)
                     favorite.setSaved(value) { c.forumApi.favorite(forumId, it) }
-                    c.forumPages.clear()
                 }
             }
             LaunchedEffect(pendingFavoriteText, binding) {
@@ -118,7 +121,6 @@ import kotlinx.coroutines.CancellationException
     deletion?.let { article -> ConfirmDialog("删除这篇文章？", "请确认已保存需要的内容。", { deletion = null }, confirmLabel = "删除文章") { c.action("文章已删除") {
         require(ForumRules.canDeletePost(article, c.forumSession.profile.value)) { "只有作者在发布后 20 分钟内或管理员可以删除帖子" }
         c.forumApi.deletePost(forumId)
-        c.forumPages.clear()
         deletion = null; c.back()
     } } }
 }

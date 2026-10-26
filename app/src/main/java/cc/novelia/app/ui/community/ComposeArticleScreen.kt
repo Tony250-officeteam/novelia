@@ -42,7 +42,7 @@ import cc.novelia.app.ui.theme.MotionContent
     val newPostKey = rememberSaveable(editingId, requestedKey) { requestedKey ?: ArticleDrafts.newKey() }
     ObserveForumLogin(c.session, c.forumSession)
     val profile by c.forumSession.profile.collectAsStateWithLifecycle()
-    AsyncContent(listOf("forum-editor", editingId, c.forumSession.capture(), profile?.role), load = { c.forumApi.categories() to editingId?.let { c.article(it) } }) { (available, article), _ ->
+    AsyncContent(listOf("forum-editor", editingId, c.forumSession.capture(), profile?.role), load = { c.categories() to editingId?.let { c.article(it) } }) { (available, article), _ ->
         if(available.isEmpty()) EmptyState("论坛还没有分类", "暂时不能发布帖子。", Icons.Outlined.Forum)
         else ArticleEditor(c, article, available, newPostKey = newPostKey)
     }
@@ -146,7 +146,6 @@ import cc.novelia.app.ui.theme.MotionContent
                             val submittedDraft = draftSnapshot()
                             val input = ForumPostInput(requireNotNull(categoryId), title.trim(), content, tagIds)
                             val result = if(article == null) c.forumApi.createPost(input) else c.forumApi.updatePost(requireNotNull(ForumLinks.postId(article.id)), input)
-                            c.forumPages.clear()
                             val resultId = ForumLinks.localId(result.id)
                             draftPersistence.submittedSuccessfully(submittedDraft); c.back()
                             c.go("article/$resultId", replaceTop = article != null && c.nav.currentDestination?.route == "article/{id}" && c.nav.currentBackStackEntry?.arguments?.getString("id") == article.id)
