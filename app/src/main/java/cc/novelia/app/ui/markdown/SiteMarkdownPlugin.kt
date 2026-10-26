@@ -107,7 +107,11 @@ private class MinimumLineHeightSpan(private val height: Int) : LineHeightSpan {
 internal class DetailsToggleSpan(val node: DetailsNode) : ClickableSpan() {
     override fun onClick(widget: View) {
         node.expanded = !node.expanded
-        (widget as? SpoilerTextView)?.refreshMarkdown?.invoke()
+        // 重渲染会 setText 并让 Layout 暂时失效。必须在当前触摸事件分发结束之后再执行：
+        // 部分 OEM（如荣耀的 HwEditor）会在 onTouchEvent 尾部继续访问 Layout，
+        // 期间同步重建文本会触发 Layout 为空的 NullPointerException。
+        val target = widget as? SpoilerTextView ?: return
+        target.deferMarkdownRefresh()
     }
     override fun updateDrawState(ds: TextPaint) { ds.isUnderlineText = false }
 }
