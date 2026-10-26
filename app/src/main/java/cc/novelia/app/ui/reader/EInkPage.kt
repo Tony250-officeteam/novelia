@@ -56,6 +56,11 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.unit.Density
+import kotlinx.coroutines.launch
 
 /**
  * 静态分页的位置状态，适用于普通屏幕和电子纸。页码是测量结果，持久定位使用段落及字符锚点。
@@ -193,6 +198,12 @@ internal fun measureEInkChapter(paragraphs: List<ReadingParagraph>, settings: Re
     var expandedImage by remember { mutableStateOf<Any?>(null) }
     val animate = !settings.eInkMode && !LocalEInkMode.current && !LocalReducedMotion.current && ValueAnimator.areAnimatorsEnabled()
     val pageShift = remember { Animatable(0f) }
+    // 跟手翻页：拖动时当前页与相邻页一起平移，松手按距离/速度决定翻页或回弹。
+    // 与点击翻页的短促过渡区分：点击走 pageShift，拖动走 dragOffset。
+    val dragOffset = remember { Animatable(0f) }
+    var dragAxis by remember { mutableStateOf(0) }   // 0=横向, 1=纵向
+    var dragTarget by remember { mutableIntStateOf(0) }  // 本次拖动的目标方向 ±1
+    val dragScope = rememberCoroutineScope()
     var lastPage by remember { mutableStateOf<Pair<List<StaticPage>, Int>?>(null) }
     LaunchedEffect(state.pages, state.pageIndex, animate) {
         val previous = lastPage
@@ -206,14 +217,49 @@ internal fun measureEInkChapter(paragraphs: List<ReadingParagraph>, settings: Re
     val tapNavigation = rememberReaderTapNavigation(settings.tapPageTurn, interactionEnabled && expandedImage == null, onToggleMenu, onPage, settings.resolvedTapZoneMap)
     BoxWithConstraints(modifier.background(background).clipToBounds()
         .readerTapFeedback(tapNavigation, foreground, settings.eInkMode || LocalEInkMode.current)
-        .readerTapNavigation(tapNavigation).pointerInput(settings.scrollPageTurn, settings.horizontalPageTurn) {
+        .readerTapNavigation(tapNavigation).pointerInput(settings.scrollPageTurn, settings.horizontalPageTurn, animate) {
         var x = 0f; var y = 0f
-        detectDragGestures(onDragStart = { x = 0f; y = 0f }, onDragCancel = { x = 0f; y = 0f }, onDragEnd = {
-            val horizontal = abs(x) > abs(y)
-            val enabled = if(horizontal) settings.horizontalPageTurn else settings.scrollPageTurn
-            val delta = if(horizontal) x else y
-            if (enabled && tapNavigation.canSwipe && abs(delta) >= 40.dp.toPx()) latestPage(if (delta < 0) 1 else -1)
-        }) { change, amount -> change.consume(); x += amount.x; y += amount.y }
+        var axis = 0
+        var locked = false
+        detectDragGestures(
+            onDragStart = { x = 0f; y = 0f; locked = false },
+            onDragCancel = {
+                x = 0f; y = 0f
+                dragScope.launch { dragOffset.animateTo(0f, tween(if(animate) AppMotion.Quick else 0)) }
+            },
+            onDragEnd = {
+                val horizontal = axis == 0
+                val enabled = if(horizontal) settings.horizontalPageTurn else settings.scrollPageTurn
+                val delta = if(horizontal) x else y
+                val extent = if(horizontal) size.width.toFloat() else size.height.toFloat()
+                val target = if(delta < 0) 1 else -1
+                if(!enabled || !tapNavigation.canSwipe || !animate) {
+                    // 关闭跟手动画时退回整页跳转，保持电子纸与减少动效的低功耗行为。
+                    if(enabled && tapNavigation.canSwipe && abs(delta) >= 40.dp.toPx()) latestPage(target)
+                    dragScope.launch { dragOffset.snapTo(0f) }
+                } else {
+                    // 松手判定：越过 1/4 屏或速度足够快即翻页，否则回弹。
+                    val passed = abs(delta) >= extent * .25f || abs(dragOffset.value) >= extent * .25f
+                    if(passed) {
+                        dragScope.launch {
+                            dragOffset.animateTo(if(target > 0) -extent else extent, tween(AppMotion.Page))
+                            latestPage(target)
+                            dragOffset.snapTo(0f)
+                        }
+                    } else dragScope.launch { dragOffset.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow)) }
+                }
+                x = 0f; y = 0f
+            }) { change, amount ->
+            change.consume()
+            if(!locked) { axis = if(abs(amount.x) > abs(amount.y)) 0 else 1; locked = true; dragAxis = axis }
+            if(axis == 0) {
+                x += amount.x
+                if(animate) dragScope.launch { dragOffset.snapTo(dragOffset.value + amount.x) }
+            } else {
+                y += amount.y
+                if(animate) dragScope.launch { dragOffset.snapTo(dragOffset.value + amount.y) }
+            }
+        }
     }.padding(contentPadding).clipToBounds()) {
         val width = constraints.maxWidth.coerceAtLeast(1)
         val height = constraints.maxHeight.coerceAtLeast(1)
@@ -239,61 +285,115 @@ internal fun measureEInkChapter(paragraphs: List<ReadingParagraph>, settings: Re
         if (chapter == null) Text("正在分页…", Modifier.align(Alignment.Center), color = foreground)
         else {
             val page = state.current
-            Column(Modifier.fillMaxSize().graphicsLayer {
-                // 再次翻页会取消上一轮副作用，并立即显示最新目标页。
-                translationX = if(animate) pageShift.value * 12.dp.toPx() else 0f
-                alpha = if(animate) 1f - abs(pageShift.value) * .12f else 1f
-            }.combinedClickable(onClickLabel = "显示或收起阅读工具栏", onClick = tapNavigation::click)) {
-                page?.lines?.groupBy { it.paragraph }?.entries?.forEachIndexed { groupIndex, (index, lines) ->
-                    if (groupIndex > 0) Spacer(Modifier.height(settings.resolvedParagraphSpacing.dp))
-                    val paragraph = chapter.paragraphs[index]
-                    if (lines.first().image) {
-                        val model = imageModel(paragraph)
-                        var retry by remember(model) { mutableIntStateOf(0) }
-                        val request = remember(context, model, retry) { ImageRequest.Builder(context).data(model).setParameter("readerRetry", retry).crossfade(false).build() }
-                        var failed by remember(model) { mutableStateOf(false) }
-                        Box(Modifier.fillMaxSize().combinedClickable(onClick = tapNavigation::click, onLongClickLabel = "放大查看插图", onLongClick = { expandedImage = model }), contentAlignment = Alignment.Center) {
-                            AsyncImage(request, "小说插图", Modifier.fillMaxSize(), contentScale = ContentScale.Fit,
-                                onLoading = { failed = false }, onSuccess = { failed = false }, onError = { failed = true })
-                            if(failed) Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("插图暂时无法加载", color = foreground)
-                                AppTextButton(onClick = { retry++ }) { Text("重新加载插图", color = foreground) }
-                            }
-                        }
-                    } else {
-                        val layout = chapter.layouts.getValue(index)
-                        val top = layout.getLineTop(layout.getLineForOffset(lines.first().start))
-                        val sliceHeight = lines.sumOf { it.height }
-                        // 超大系统字号可能使一行文字高于整个横屏视口；
-                        // 此时缩放适配该行，避免裁切字形。
-                        val drawScale = (height.toFloat() / sliceHeight).coerceAtMost(1f)
-                        val visibleText = layout.text.subSequence(lines.first().start, lines.last().end).toString()
-                        Canvas(Modifier.fillMaxWidth().height(with(density) { (sliceHeight * drawScale).toDp() }).clipToBounds()
-                            .semantics { text = AnnotatedString(visibleText) }
-                            .combinedClickable(onClickLabel = "显示或收起阅读工具栏", onClick = tapNavigation::click,
-                                onLongClickLabel = "选择段落、分享或添加笔记", onLongClick = { onSelect(paragraph) })) {
-                            drawIntoCanvas { canvas ->
-                                val native = canvas.nativeCanvas
-                                native.save()
-                                native.scale(drawScale, drawScale)
-                                native.translate(0f, -top.toFloat())
-                                activeMatch?.takeIf { it.paragraph == index && it.end > it.start }?.let { match ->
-                                    val start = match.textOffset(paragraph, settings).coerceIn(0, layout.text.length)
-                                    val end = (start + match.end - match.start).coerceIn(start, layout.text.length)
-                                    val path = android.graphics.Path()
-                                    layout.getSelectionPath(start, end, path)
-                                    native.drawPath(path, android.graphics.Paint().apply { color = foreground.copy(alpha = .2f).toArgb() })
-                                }
-                                layout.paint.color = foreground.toArgb()
-                                layout.draw(native)
-                                native.restore()
-                            }
-                        }
-                    }
+            // 拖动方向决定要额外渲染哪一页：向右拖看上一页，向左拖看下一页。
+            val neighborIndex = when {
+                dragOffset.value > 0f -> state.pageIndex - 1
+                dragOffset.value < 0f -> state.pageIndex + 1
+                else -> -1
+            }
+            val neighbor = chapter.pages.getOrNull(neighborIndex)
+            BoxWithConstraints(Modifier.fillMaxSize().clipToBounds()) {
+                val viewportW = constraints.maxWidth.toFloat()
+                val viewportH = constraints.maxHeight.toFloat()
+                // 点击翻页的短促过渡与拖动跟手分开：拖动时页偏移完全跟随手指。
+                val shift = if(animate) pageShift.value * 12.dp.value * density.density else 0f
+                val dragging = dragOffset.value != 0f
+                if(neighbor != null) {
+                    PageBody(neighbor, chapter, settings, foreground, activeMatch, density, context,
+                        tapNavigation, onSelect, imageModel, { expandedImage = it },
+                        Modifier.fillMaxSize().graphicsLayer {
+                            val along = if(dragAxis == 0) viewportW else viewportH
+                            val sign = if(neighborIndex < state.pageIndex) -1f else 1f
+                            translationX = if(dragAxis == 0) sign * along + dragOffset.value else 0f
+                            translationY = if(dragAxis == 1) sign * along + dragOffset.value else 0f
+                        })
                 }
-                if (page?.lines.isNullOrEmpty()) Text("本章暂无正文", color = foreground)
+                PageBody(page, chapter, settings, foreground, activeMatch, density, context,
+                    tapNavigation, onSelect, imageModel, { expandedImage = it },
+                    Modifier.fillMaxSize().graphicsLayer {
+                        translationX = if(dragAxis == 0) dragOffset.value else shift
+                        translationY = if(dragAxis == 1) dragOffset.value else 0f
+                        alpha = if(dragging) 1f else if(animate) 1f - abs(pageShift.value) * .12f else 1f
+                    })
             }
         }
     }
     expandedImage?.let { model -> IllustrationViewer(model) { expandedImage = null } }
+}
+
+/**
+ * 单页正文渲染，供跟手翻页同时绘制当前页与相邻页。
+ *
+ * 从 [EInkPage] 抽出：拖动时两页共存，必须把渲染逻辑做成可复用组件，
+ * 各自持有独立的图片重试等局部状态。
+ */
+@Composable
+private fun PageBody(
+    page: StaticPage?,
+    chapter: MeasuredEInkChapter,
+    settings: ReaderSettings,
+    foreground: Color,
+    activeMatch: ReadingTextMatch?,
+    density: Density,
+    context: android.content.Context,
+    tapNavigation: ReaderTapNavigation,
+    onSelect: (ReadingParagraph) -> Unit,
+    imageModel: (ReadingParagraph) -> Any?,
+    onExpandImage: (Any?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val maxHeight = with(density) { LocalConfiguration.current.screenHeightDp.dp }
+    Column(modifier.combinedClickable(onClickLabel = "显示或收起阅读工具栏", onClick = tapNavigation::click)) {
+        page?.lines?.groupBy { it.paragraph }?.entries?.forEachIndexed { groupIndex, (index, lines) ->
+            if (groupIndex > 0) Spacer(Modifier.height(settings.resolvedParagraphSpacing.dp))
+            val paragraph = chapter.paragraphs[index]
+            if (lines.first().image) {
+                val model = imageModel(paragraph)
+                var retry by remember(model) { mutableIntStateOf(0) }
+                val request = remember(context, model, retry) {
+                    ImageRequest.Builder(context).data(model).setParameter("readerRetry", retry).crossfade(false).build()
+                }
+                var failed by remember(model) { mutableStateOf(false) }
+                Box(Modifier.fillMaxSize().combinedClickable(onClick = tapNavigation::click,
+                    onLongClickLabel = "放大查看插图", onLongClick = { onExpandImage(model) }), contentAlignment = Alignment.Center) {
+                    AsyncImage(request, "小说插图", Modifier.fillMaxSize(), contentScale = ContentScale.Fit,
+                        onLoading = { failed = false }, onSuccess = { failed = false }, onError = { failed = true })
+                    if(failed) Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("插图暂时无法加载", color = foreground)
+                        AppTextButton(onClick = { retry++ }) { Text("重新加载插图", color = foreground) }
+                    }
+                }
+            } else {
+                val layout = chapter.layouts.getValue(index)
+                val top = layout.getLineTop(layout.getLineForOffset(lines.first().start))
+                val sliceHeight = lines.sumOf { it.height }
+                // 超大系统字号可能使一行文字高于整个横屏视口；
+                // 此时缩放适配该行，避免裁切字形。
+                val drawScale = (maxHeight.value * density.density / sliceHeight).coerceAtMost(1f)
+                val visibleText = layout.text.subSequence(lines.first().start, lines.last().end).toString()
+                Canvas(Modifier.fillMaxWidth().height(with(density) { (sliceHeight * drawScale).toDp() }).clipToBounds()
+                    .semantics { text = AnnotatedString(visibleText) }
+                    .combinedClickable(onClickLabel = "显示或收起阅读工具栏", onClick = tapNavigation::click,
+                        onLongClickLabel = "选择段落、分享或添加笔记", onLongClick = { onSelect(paragraph) })) {
+                    drawIntoCanvas { canvas ->
+                        val native = canvas.nativeCanvas
+                        native.save()
+                        native.scale(drawScale, drawScale)
+                        native.translate(0f, -top.toFloat())
+                        activeMatch?.takeIf { it.paragraph == index && it.end > it.start }?.let { match ->
+                            val start = match.textOffset(paragraph, settings).coerceIn(0, layout.text.length)
+                            val end = (start + match.end - match.start).coerceIn(start, layout.text.length)
+                            val path = android.graphics.Path()
+                            layout.getSelectionPath(start, end, path)
+                            native.drawPath(path, android.graphics.Paint().apply { color = foreground.copy(alpha = .2f).toArgb() })
+                        }
+                        layout.paint.color = foreground.toArgb()
+                        layout.draw(native)
+                        native.restore()
+                    }
+                }
+            }
+        }
+        if (page?.lines.isNullOrEmpty()) Text("本章暂无正文", color = foreground)
+    }
 }
