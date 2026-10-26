@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import cc.novelia.app.data.model.ReaderSettings
 import cc.novelia.app.reader.*
 import cc.novelia.app.ui.components.base.AppScrollColumn
+import cc.novelia.app.ui.components.base.AppTextButton
 import cc.novelia.app.ui.components.base.ChoiceRow
 import cc.novelia.app.ui.components.base.TogglePreference
 import cc.novelia.app.ui.markdown.format
@@ -110,20 +111,18 @@ import kotlin.math.roundToInt
                         TogglePreference("点击区域翻页", if(value.tapPageTurn) "按下方分区响应单击；横向与纵向可同时生效，每格都能单独设置" else "开启后可逐格设置点击区域，决定单击各区域翻到上一页还是下一页",
                             value.tapPageTurn, defaultValue = defaults?.tapPageTurn) { onChange(value.copy(tapPageTurn = it)) }
                         if(value.tapPageTurn) {
-                            // 分区方案移植自 FBReaderJ：横向与纵向同时生效，且每格可独立配置。
+                            // 分区方案移植自 FBReaderJ：横向与纵向同时生效，每格可独立配置。
                             val currentMap = value.resolvedTapZoneMap
-                            val zoneNames = ReaderTapZoneMap.zoneMapNames()
-                            ChoiceRow("预设方案", zoneNames.map { ReaderTapZoneMap.displayName(it) },
-                                zoneNames.indexOf(currentMap.name).coerceAtLeast(0),
-                                defaultSelected = defaults?.let { zoneNames.indexOf(it.resolvedTapZoneMap.name).coerceAtLeast(0) }) {
-                                onChange(value.copy(tapZoneMap = ReaderTapZoneMap.encode(ReaderTapZoneMap.byName(zoneNames[it]))))
-                            }
                             ReaderTapZoneEditor(currentMap, onChange = { map ->
-                                // 逐格修改写入完整编码；预设本身不被覆盖，随时可以切回。
                                 onChange(value.copy(tapZoneMap = ReaderTapZoneMap.encode(map)))
                             })
                             Text(currentMap.describe(), Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.End) {
+                                val resetMap = ReaderTapZoneMap.encode(ReaderTapZoneMap.Default)
+                                AppTextButton(onClick = { onChange(value.copy(tapZoneMap = resetMap)) },
+                                    modifier = Modifier.testTag("tap-zone-reset")) { Text("恢复默认分区") }
+                            }
                         }
                         if(value.staticPagination) {
                             TogglePreference("滚动翻页", "向上滑动下一页，向下滑动上一页", value.scrollPageTurn, defaultValue = defaults?.scrollPageTurn) { onChange(value.copy(scrollPageTurn = it)) }

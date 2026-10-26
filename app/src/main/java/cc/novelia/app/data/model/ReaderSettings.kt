@@ -65,8 +65,8 @@ import kotlinx.serialization.Serializable
     // 兼容黑白模式尚未成为主题选项之前保存的设置。
     val resolvedTheme get() = if(monochrome) "monochrome" else theme
     val resolvedCustomColors get() = customColors.takeIf { it.valid } ?: ReaderCustomColors()
-    /** 解析后的点击分区方案；空值或未知内容回退到四向翻页，保证阅读器始终可翻页。 */
-    val resolvedTapZoneMap get() = if (tapZoneMap.isBlank()) cc.novelia.app.reader.ReaderTapZoneMap.FourWay
+    /** 解析后的点击分区方案；空值或损坏内容回退到默认四向翻页，保证阅读器始终可翻页。 */
+    val resolvedTapZoneMap get() = if (tapZoneMap.isBlank()) cc.novelia.app.reader.ReaderTapZoneMap.Default
         else cc.novelia.app.reader.ReaderTapZoneMap.decode(tapZoneMap)
     fun withTheme(selected: String) = copy(theme = selected, monochrome = false)
     val staticPagination get() = paginationMode == "auto"

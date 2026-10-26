@@ -33,7 +33,7 @@ internal class ReaderTapNavigation {
     private var pageTurningEnabled = true
     private var onToggleMenu: () -> Unit = {}
     private var onPage: (Int) -> Unit = {}
-    private var zoneMap: ReaderTapZoneMap = ReaderTapZoneMap.RightToLeft
+    private var zoneMap: ReaderTapZoneMap = ReaderTapZoneMap.Default
     private var tracking = false
     private var valid = false
     private var tap = false
@@ -48,7 +48,7 @@ internal class ReaderTapNavigation {
     val canSwipe: Boolean get() = pageTurningEnabled && tracking && valid
 
     fun configure(tapPageTurn: Boolean, pageTurningEnabled: Boolean, onToggleMenu: () -> Unit, onPage: (Int) -> Unit,
-        zoneMap: ReaderTapZoneMap = ReaderTapZoneMap.RightToLeft) {
+        zoneMap: ReaderTapZoneMap = ReaderTapZoneMap.Default) {
         if(this.tapPageTurn != tapPageTurn || this.pageTurningEnabled != pageTurningEnabled || this.zoneMap !== zoneMap) {
             cancel()
             feedback = null
@@ -111,7 +111,7 @@ internal data class ReaderTapFeedback(val id: Long, val direction: Int)
 
 @Composable internal fun rememberReaderTapNavigation(
     tapPageTurn: Boolean, pageTurningEnabled: Boolean = true, onToggleMenu: () -> Unit, onPage: (Int) -> Unit,
-    zoneMap: ReaderTapZoneMap = ReaderTapZoneMap.RightToLeft
+    zoneMap: ReaderTapZoneMap = ReaderTapZoneMap.Default
 ): ReaderTapNavigation {
     val navigation = remember { ReaderTapNavigation() }
     SideEffect { navigation.configure(tapPageTurn, pageTurningEnabled, onToggleMenu, onPage, zoneMap) }

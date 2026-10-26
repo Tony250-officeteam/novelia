@@ -67,7 +67,7 @@ data class ReaderPageTurningOptions(
     /** 是否横向翻页（false 为纵向） */
     val horizontal: Boolean = true,
     /** 点击分区方案名称，见 [ReaderTapZoneMap.zoneMapNames] */
-    val tapZoneMap: String = ReaderTapZoneMap.RightToLeft.name,
+    val tapZoneMap: String = ReaderTapZoneMap.Default.name,
 ) {
     /** 动画速度归一化为 0f..1f，供 Compose 动画时长使用；值越大越慢。 */
     val animationFraction: Float
