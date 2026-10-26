@@ -107,8 +107,24 @@ import kotlin.math.roundToInt
                         ChoiceRow("分页模式", listOf("连续滚动", "自动分页"), if(value.staticPagination) 1 else 0, defaultSelected = defaults?.let { if(it.staticPagination) 1 else 0 }) { onChange(value.withPaginationMode(if(it == 1) "auto" else "scroll")) }
                         Text(if(value.staticPagination) "按屏幕大小提前排成独立页面，每次翻动一页。" else "整章连续排列，上下滑动浏览，不提前拆成独立页面。",
                             Modifier.padding(horizontal = 20.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        TogglePreference("点击区域翻页", if(value.staticPagination) "点击正文左侧三分之一翻到上一页，右侧三分之一翻到下一页；中间显示或收起工具栏" else "点击正文左侧三分之一翻到上一屏，右侧三分之一翻到下一屏；中间显示或收起工具栏",
+                        TogglePreference("点击区域翻页", if(value.tapPageTurn) "按下方分区响应单击；横向与纵向可同时生效，每格都能单独设置" else "开启后可逐格设置点击区域，决定单击各区域翻到上一页还是下一页",
                             value.tapPageTurn, defaultValue = defaults?.tapPageTurn) { onChange(value.copy(tapPageTurn = it)) }
+                        if(value.tapPageTurn) {
+                            // 分区方案移植自 FBReaderJ：横向与纵向同时生效，且每格可独立配置。
+                            val currentMap = value.resolvedTapZoneMap
+                            val zoneNames = ReaderTapZoneMap.zoneMapNames()
+                            ChoiceRow("预设方案", zoneNames.map { ReaderTapZoneMap.displayName(it) },
+                                zoneNames.indexOf(currentMap.name).coerceAtLeast(0),
+                                defaultSelected = defaults?.let { zoneNames.indexOf(it.resolvedTapZoneMap.name).coerceAtLeast(0) }) {
+                                onChange(value.copy(tapZoneMap = ReaderTapZoneMap.encode(ReaderTapZoneMap.byName(zoneNames[it]))))
+                            }
+                            ReaderTapZoneEditor(currentMap, onChange = { map ->
+                                // 逐格修改写入完整编码；预设本身不被覆盖，随时可以切回。
+                                onChange(value.copy(tapZoneMap = ReaderTapZoneMap.encode(map)))
+                            })
+                            Text(currentMap.describe(), Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                         if(value.staticPagination) {
                             TogglePreference("滚动翻页", "向上滑动下一页，向下滑动上一页", value.scrollPageTurn, defaultValue = defaults?.scrollPageTurn) { onChange(value.copy(scrollPageTurn = it)) }
                             TogglePreference("左右翻页", "向左滑动下一页，向右滑动上一页", value.horizontalPageTurn, defaultValue = defaults?.horizontalPageTurn) { onChange(value.copy(horizontalPageTurn = it)) }

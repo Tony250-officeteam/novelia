@@ -595,7 +595,7 @@ import kotlinx.serialization.encodeToString
             // 两种模式均使用固定正文视口；工具栏是同级浮层，
             // 不得给正文布局增加内边距或尺寸约束。
             val bodyInputEnabled = volumeKeysActive && !leaving && !chapterLoad.loading && !positionState.restoringAnchor && positionState.initialAnchorRestored && seekTarget == null
-            val tapNavigation = rememberReaderTapNavigation(settings.tapPageTurn, bodyInputEnabled, { menu = !menu }, { page(it) })
+            val tapNavigation = rememberReaderTapNavigation(settings.tapPageTurn, bodyInputEnabled, { menu = !menu }, { page(it) }, settings.resolvedTapZoneMap)
             if(settings.staticPagination) EInkPage(paragraphs, settings, eInk,
                 Modifier.testTag("reader-page").align(Alignment.TopCenter).fillMaxHeight().windowInsetsPadding(readingInsets)
                     .padding(bottom = readingStatusBarHeight)

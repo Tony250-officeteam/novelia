@@ -203,7 +203,7 @@ internal fun measureEInkChapter(paragraphs: List<ReadingParagraph>, settings: Re
         } else pageShift.snapTo(0f)
     }
     val latestPage by rememberUpdatedState(onPage)
-    val tapNavigation = rememberReaderTapNavigation(settings.tapPageTurn, interactionEnabled && expandedImage == null, onToggleMenu, onPage)
+    val tapNavigation = rememberReaderTapNavigation(settings.tapPageTurn, interactionEnabled && expandedImage == null, onToggleMenu, onPage, settings.resolvedTapZoneMap)
     BoxWithConstraints(modifier.background(background).clipToBounds()
         .readerTapFeedback(tapNavigation, foreground, settings.eInkMode || LocalEInkMode.current)
         .readerTapNavigation(tapNavigation).pointerInput(settings.scrollPageTurn, settings.horizontalPageTurn) {

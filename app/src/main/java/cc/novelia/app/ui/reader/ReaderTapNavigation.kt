@@ -15,31 +15,41 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import cc.novelia.app.reader.ReaderTapAction
+import cc.novelia.app.reader.ReaderTapKind
+import cc.novelia.app.reader.ReaderTapZoneMap
 
 /**
  * 只观察正文视口中的指针，不抢占列表、长按或按钮的事件。
  * 真正的点击仍由现有 clickable / combinedClickable 确认，再按视口坐标分区。
  * 键盘与无障碍点击没有指针坐标，始终保留工具栏入口。
+ *
+ * 点击分区方案来自 [ReaderTapZoneMap]（移植自 FBReaderJ）；
+ * 默认右开本：左列上一页、右列下一页、中列与未配置区域收起或展开工具栏，
+ * 与旧版写死三等分的行为保持兼容。
  */
 internal class ReaderTapNavigation {
     private var tapPageTurn = false
     private var pageTurningEnabled = true
     private var onToggleMenu: () -> Unit = {}
     private var onPage: (Int) -> Unit = {}
+    private var zoneMap: ReaderTapZoneMap = ReaderTapZoneMap.RightToLeft
     private var tracking = false
     private var valid = false
     private var tap = false
     private var released = false
     private var start = Offset.Zero
     private var width = 0
+    private var height = 0
     private var feedbackId = 0L
     var feedback by mutableStateOf<ReaderTapFeedback?>(null)
         private set
 
     val canSwipe: Boolean get() = pageTurningEnabled && tracking && valid
 
-    fun configure(tapPageTurn: Boolean, pageTurningEnabled: Boolean, onToggleMenu: () -> Unit, onPage: (Int) -> Unit) {
-        if(this.tapPageTurn != tapPageTurn || this.pageTurningEnabled != pageTurningEnabled) {
+    fun configure(tapPageTurn: Boolean, pageTurningEnabled: Boolean, onToggleMenu: () -> Unit, onPage: (Int) -> Unit,
+        zoneMap: ReaderTapZoneMap = ReaderTapZoneMap.RightToLeft) {
+        if(this.tapPageTurn != tapPageTurn || this.pageTurningEnabled != pageTurningEnabled || this.zoneMap !== zoneMap) {
             cancel()
             feedback = null
         }
@@ -47,9 +57,10 @@ internal class ReaderTapNavigation {
         this.pageTurningEnabled = pageTurningEnabled
         this.onToggleMenu = onToggleMenu
         this.onPage = onPage
+        this.zoneMap = zoneMap
     }
 
-    fun begin(position: Offset, width: Int) {
+    fun begin(position: Offset, width: Int, height: Int = 0) {
         feedback = null
         tracking = true
         valid = true
@@ -57,6 +68,7 @@ internal class ReaderTapNavigation {
         released = false
         start = position
         this.width = width
+        this.height = height
     }
 
     fun cancel() { valid = false }
@@ -73,26 +85,36 @@ internal class ReaderTapNavigation {
         if(!tracking) { onToggleMenu(); return }
         if(!valid || !tap || !released) return
         valid = false
-        val direction = when {
-            // 搜索等状态暂停翻页时，仍能通过正文收起或展开工具栏。
-            !pageTurningEnabled || !tapPageTurn || width <= 0 -> 0
-            start.x < width / 3f -> -1
-            start.x >= width * 2f / 3f -> 1
-            else -> 0
+        // 搜索等状态暂停翻页时，仍能通过正文收起或展开工具栏。
+        if(!pageTurningEnabled || !tapPageTurn || width <= 0) {
+            feedback = null
+            onToggleMenu()
+            return
         }
+        val action = zoneMap.getActionByCoordinates(start.x.toInt(), start.y.toInt(), width, height, ReaderTapKind.SingleTap)
         // 只反馈已确认的区域单击；滑动、长按、控件及无障碍点击不会产生闪烁。
-        if(tapPageTurn && pageTurningEnabled) feedback = ReaderTapFeedback(++feedbackId, direction)
-        if(direction == 0) onToggleMenu() else onPage(direction)
+        feedback = when(action) {
+            ReaderTapAction.PreviousPage -> ReaderTapFeedback(++feedbackId, -1)
+            ReaderTapAction.NextPage -> ReaderTapFeedback(++feedbackId, 1)
+            else -> null
+        }
+        when(action) {
+            ReaderTapAction.PreviousPage -> onPage(-1)
+            ReaderTapAction.NextPage -> onPage(1)
+            // 中列与未配置区域保持旧行为：收起或展开工具栏。
+            else -> onToggleMenu()
+        }
     }
 }
 
 internal data class ReaderTapFeedback(val id: Long, val direction: Int)
 
 @Composable internal fun rememberReaderTapNavigation(
-    tapPageTurn: Boolean, pageTurningEnabled: Boolean = true, onToggleMenu: () -> Unit, onPage: (Int) -> Unit
+    tapPageTurn: Boolean, pageTurningEnabled: Boolean = true, onToggleMenu: () -> Unit, onPage: (Int) -> Unit,
+    zoneMap: ReaderTapZoneMap = ReaderTapZoneMap.RightToLeft
 ): ReaderTapNavigation {
     val navigation = remember { ReaderTapNavigation() }
-    SideEffect { navigation.configure(tapPageTurn, pageTurningEnabled, onToggleMenu, onPage) }
+    SideEffect { navigation.configure(tapPageTurn, pageTurningEnabled, onToggleMenu, onPage, zoneMap) }
     return navigation
 }
 
@@ -101,7 +123,7 @@ internal data class ReaderTapFeedback(val id: Long, val direction: Int)
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
             val viewport = size
-            navigation.begin(down.position, viewport.width)
+            navigation.begin(down.position, viewport.width, viewport.height)
             if(down.isConsumed || currentEvent.changes.size != 1) navigation.cancel()
             try {
                 while(true) {
