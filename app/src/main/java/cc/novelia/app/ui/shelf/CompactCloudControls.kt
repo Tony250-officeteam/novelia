@@ -43,15 +43,16 @@ import cc.novelia.app.ui.components.base.*
     LaunchedEffect(active, visible) { if(!active || !visible) { folderMenu = false; sortMenu = false; onExpanded(false); focus.clearFocus() } }
     if(visible) Column(modifier.fillMaxWidth().testTag("cloud-controls")) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp).testTag("cloud-toolbar"), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.weight(1f)) {
+            BoxWithConstraints(Modifier.weight(1f)) {
+                val folderMenuWidth = maxWidth
                 AppTextButton({ folderMenu = true; focus.clearFocus() }, Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("cloud-folder-picker"),
                     contentPadding = PaddingValues(horizontal = 8.dp)) {
                     Icon(Icons.Outlined.Folder, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp))
                     Text(current?.title ?: "收藏夹", Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
                         color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelLarge)
-                    Icon(Icons.Outlined.ExpandMore, null, Modifier.size(18.dp))
+                    Icon(if(folderMenu) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, null, Modifier.size(18.dp))
                 }
-                AppDropdownMenu(folderMenu, { folderMenu = false }, Modifier.testTag("cloud-folder-menu")) {
+                AppDropdownMenu(folderMenu, { folderMenu = false }, Modifier.width(folderMenuWidth).testTag("cloud-folder-menu")) {
                     folders.forEach { item -> DropdownMenuItem({ Text(item.title) }, { folderMenu = false; onFolder(item.id) },
                         trailingIcon = if(current?.id == item.id) ({ Icon(Icons.Outlined.Check, null) }) else null) }
                     if(folders.isNotEmpty()) HorizontalDivider()

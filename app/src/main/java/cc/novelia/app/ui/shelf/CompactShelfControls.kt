@@ -50,15 +50,16 @@ import cc.novelia.app.ui.components.base.*
     }
     if(visible) Column(modifier.fillMaxWidth().testTag("local-controls")) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp).testTag("local-toolbar"), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.weight(1f)) {
+            BoxWithConstraints(Modifier.weight(1f)) {
+                val folderMenuWidth = maxWidth
                 AppTextButton(onClick = { folderMenu = true; focus.clearFocus() },
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("local-folder-picker"), contentPadding = PaddingValues(horizontal = 8.dp)) {
                     Icon(Icons.Outlined.Folder, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp))
                     Text(if(folder == "全部") "全部收藏夹" else folder, Modifier.weight(1f), maxLines = 1,
                         overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelLarge)
-                    Icon(Icons.Outlined.ExpandMore, null, Modifier.size(18.dp))
+                    Icon(if(folderMenu) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, null, Modifier.size(18.dp))
                 }
-                AppDropdownMenu(folderMenu, { folderMenu = false }, Modifier.testTag("local-folder-menu")) {
+                AppDropdownMenu(folderMenu, { folderMenu = false }, Modifier.width(folderMenuWidth).testTag("local-folder-menu")) {
                     (listOf("全部") + folders).forEach { choice ->
                         DropdownMenuItem(text = { Text(if(choice == "全部") "全部收藏夹" else choice) },
                             onClick = { folderMenu = false; onFolder(choice) },
