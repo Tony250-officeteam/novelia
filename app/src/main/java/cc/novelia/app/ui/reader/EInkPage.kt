@@ -619,6 +619,10 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap, val goalT
                                         val y1 = metrics.yTop(r + 1)
                                         val pos = (if (viewportTop - y0 <= (y1 - y0) / 2f) y0 else y1).coerceIn(0f, maxTop)
                                         viewportTop = pos
+                                        // 纵向落定也烘一张位图并冻结：静止画面统一由位图提供，
+                                        // 与横向翻页的提交帧同源，杜绝「位图↔实时」切换差。
+                                        frozen = bakeInto(2, pos)
+                                        frozenTop = pos
                                         val pageIdx = pageAtRow(metrics.rowAt(pos + viewportH * 0.4f))
                                         if (pageIdx != state.pageIndex) state.seek(pageIdx)
                                         // 只保存，不经过外层 page(dir) 的页表 move——
@@ -638,6 +642,10 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap, val goalT
                                 val enabled = if (axis == 0) settings.horizontalPageTurn else settings.scrollPageTurn
                                 if (!enabled) return@detectDragGestures
                                 locked = true
+                                // 真正开始拖动才释放冻结位图（单击不经过这里），
+                                // 否则纵向跟手会被上一帧的静态位图挡住。
+                                frozen = null
+                                frozenTop = -1f
                             }
                             if (axis == 0) {
                                 totalX += amount.x
@@ -695,12 +703,25 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap, val goalT
                     }
             ) {
                 val t = turn
-                if (t != null) {
-                    // 动画帧：两张贴位图 + 覆盖页压暗 + 接缝 16dp 渐变阴影。
-                    // 结构逐行对应 SlideAnimationProvider.drawInternal；无任何重组。
-                    Canvas(Modifier.fillMaxSize().background(background)) {
-                        drawIntoCanvas { dc ->
-                            val nc = dc.nativeCanvas
+                val (fromRow, toRow) = screenRows(metrics.rowAt(viewportTop))
+                val showFrozen = t == null && frozen != null && abs(viewportTop - frozenTop) < 0.5f
+                // 动画 / 冻结 / 实时三种绘制必须在同一个 Canvas 节点里分支。
+                // 若拆成两个 Canvas（if turn != null 一个、else 一个），`turn` 由非空变空时
+                // Compose 会销毁旧节点、新建节点，荣耀的合成器在这一帧仍取旧 DisplayList，
+                // 表现为「动画结束后旧页 A 诈尸一帧，然后消失」。
+                Canvas(Modifier.fillMaxSize().background(background)
+                    .semantics {
+                        text = AnnotatedString(page?.let { p ->
+                            val layout = chapter.layouts[p.lines.firstOrNull()?.paragraph ?: 0]
+                            val first = p.lines.firstOrNull()
+                            if (layout != null && first != null)
+                                layout.text.subSequence(first.start, first.end).toString() else ""
+                        } ?: "")
+                    }) {
+                    drawIntoCanvas { dc ->
+                        val nc = dc.nativeCanvas
+                        if (t != null) {
+                            // 动画帧：贴两张位图 + 覆盖页压暗 + 接缝渐变阴影
                             val progress = (abs(turnShift) / viewportW).coerceIn(0f, 1f)
                             nc.drawBitmap(t.to, 0f, 0f, null)
                             val dim = (0.44f * (1f - progress) * 255f).toInt().coerceIn(0, 255)
@@ -709,8 +730,6 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap, val goalT
                             nc.translate(turnShift, 0f)
                             nc.drawBitmap(t.from, 0f, 0f, null)
                             nc.restoreToCount(save)
-                            // 接缝阴影随翻页推进淡出：走到整屏时不能留下一条
-                            // 边缘暗带，否则提交瞬间会看到它消失（闪烁源之一）。
                             val shadow = 16f * densityValue * (1f - progress)
                             val paint = Paint()
                             if (shadow > 0.5f && turnShift < 0f) {
@@ -722,35 +741,17 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap, val goalT
                                 nc.drawRect(turnShift - shadow, 0f, turnShift, viewportH, paint)
                             }
                             paint.shader = null
+                        } else if (showFrozen) {
+                            // 提交后的静止帧：与动画终点同一张位图，像素完全一致
+                            nc.drawBitmap(frozen!!, 0f, 0f, null)
+                        } else {
+                            nc.drawColor(background.toArgb())
+                            drawStrip(nc, fromRow, toRow, chapter, settings, spacingPx, foreground.toArgb(), activeMatch, height)
                         }
                     }
-                } else {
-                    // 静态/滚动：只画完整行，底部留白 < 一行高，绝不切行。
-                    // 冻结位图与实时绘制放在**同一个 Canvas 节点**里分支：
-                    // 若拆成两个 Canvas，Compose 切换节点时会重建，可能丢一帧造成闪烁。
-                    val (fromRow, toRow) = screenRows(metrics.rowAt(viewportTop))
-                    val showFrozen = frozen != null && abs(viewportTop - frozenTop) < 0.5f
-                    Canvas(Modifier.fillMaxSize()
-                        .semantics {
-                            text = AnnotatedString(page?.let { p ->
-                                val layout = chapter.layouts[p.lines.firstOrNull()?.paragraph ?: 0]
-                                val first = p.lines.firstOrNull()
-                                if (layout != null && first != null)
-                                    layout.text.subSequence(first.start, first.end).toString() else ""
-                            } ?: "")
-                        }) {
-                        drawIntoCanvas { dc ->
-                            val nc = dc.nativeCanvas
-                            if (showFrozen) {
-                                nc.drawBitmap(frozen!!, 0f, 0f, null)
-                            } else {
-                                nc.drawColor(background.toArgb())
-                                drawStrip(nc, fromRow, toRow, chapter, settings, spacingPx, foreground.toArgb(), activeMatch, height)
-                            }
-                        }
-                    }
-                    // 视口内插图：真实 Coil 图叠加在纸带行位上（烘焙位图只有占位色）。
-                    // y 必须用与 drawStrip 相同的相对累加算，否则插图会与文字错位。
+                }
+                // 视口内插图：仅静态时叠加真实图（动画期是纯位图，不参与）
+                if (t == null && !showFrozen) {
                     val expandImage: (Any?) -> Unit = { expandedImage = it }
                     var imgY = 0f
                     for (i in fromRow until toRow) {
