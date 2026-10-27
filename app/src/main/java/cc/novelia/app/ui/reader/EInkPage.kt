@@ -303,6 +303,9 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap)
     // 冻结到下一次交互，画面就与动画最后一帧逐像素相同（FBReader onDrawStatic 同款）。
     var frozen by remember { mutableStateOf<Bitmap?>(null) }
     var frozenTop by remember { mutableFloatStateOf(-1f) }
+    // 复用位图缓冲：拖动第一帧若现分配两块 27MB，会卡出一帧，被看成闪烁。
+    // 0 = from，1 = to，2 = 冻结帧。
+    val slots = remember { arrayOfNulls<Bitmap>(3) }
     // 点击翻页请求（方向+时间戳）：需要视口尺寸与快照，交给内层 LaunchedEffect。
     var tapTurn by remember { mutableStateOf<Pair<Int, Long>?>(null) }
 
@@ -389,16 +392,46 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap)
                 }
             }
 
+            /**
+             * 当前视口能完整容纳的行区间 [fromRow, toRow)。
+             * 只收完整行：视口高度不是行高整数倍时宁可底部留白，
+             * 也不让最后一行被裁掉一半（FBReader buildInfos 的取舍）。
+             * 单行高于整个视口时至少保留一行，避免整屏空白。
+             */
             fun screenRows(top: Float): Pair<Int, Int> {
                 val fromRow = metrics.rowAt(top)
                 var toRow = fromRow
-                while (toRow < lines.size && metrics.yTop(toRow) - top < viewportH) toRow++
+                while (toRow < lines.size && metrics.yTop(toRow + 1) - top <= viewportH) toRow++
+                if (toRow == fromRow && fromRow < lines.size) toRow = fromRow + 1
                 return fromRow to toRow
+            }
+
+            /**
+             * 复用缓冲烘焙：拖动时反复换方向会重复烘焙，
+             * 每次新建两块 27MB 位图会卡出一帧（观感即闪烁）。
+             * 槽位 0=from、1=to 循环复用，尺寸不符时才重建。
+             */
+            fun bakeInto(slot: Int, top: Float): Bitmap {
+                val old = slots[slot]
+                val bmp = if (old != null && !old.isRecycled && old.width == width && old.height == height) old
+                    else Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also {
+                        it.density = context.resources.displayMetrics.densityDpi
+                        slots[slot] = it
+                    }
+                val c = android.graphics.Canvas(bmp)
+                c.drawColor(background.toArgb())
+                val t = top.coerceIn(0f, maxTop)
+                val (fromRow, toRow) = screenRows(t)
+                drawStrip(c, t, fromRow, toRow, chapter, metrics, settings, foreground.toArgb(), activeMatch, height)
+                return bmp
             }
 
             fun bake(top: Float): Bitmap {
                 // ARGB_8888：与实时 StaticLayout 绘制同色深，切换时不留色阶差
                 val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                // 位图密度必须与屏幕一致：默认 160dpi 会被 drawBitmap 按密度放大，
+                // 与实时绘制差一个缩放系数，切换瞬间整页轻微位移=闪。
+                bmp.density = context.resources.displayMetrics.densityDpi
                 val c = android.graphics.Canvas(bmp)
                 c.drawColor(background.toArgb())
                 val t = top.coerceIn(0f, maxTop)
@@ -590,8 +623,13 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap)
                                 val t = turn
                                 if (t == null || t.dir != dir) {
                                     val g = goalTopFor(dir)
-                                    if (g != null) { turn = PageTurn(dir, bake(viewportTop), bake(g)); turnShift = totalX }
-                                    else if (t != null) { turn = null; turnShift = 0f }
+                                    if (g != null) {
+                                        // 复用两块缓冲，避免每次换向都新建 54MB
+                                        val from = bakeInto(0, viewportTop)
+                                        val to = bakeInto(1, g)
+                                        turn = PageTurn(dir, from, to)
+                                        turnShift = totalX
+                                    } else if (t != null) { turn = null; turnShift = 0f }
                                 } else {
                                     turnShift = totalX
                                     // 回越过界：释放快照回到无动画状态
@@ -670,9 +708,8 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap)
                         drawIntoCanvas { dc -> dc.nativeCanvas.drawBitmap(frozen!!, 0f, 0f, null) }
                     }
                 } else {
-                    val fromRow = metrics.rowAt(viewportTop)
-                    var toRow = fromRow
-                    while (toRow < lines.size && metrics.yTop(toRow) - viewportTop < viewportH) toRow++
+                    // 静态/滚动：只画完整行，底部留白 < 一行高，绝不切行。
+                    val (fromRow, toRow) = screenRows(viewportTop)
                     Canvas(Modifier.fillMaxSize()
                         .semantics {
                             text = AnnotatedString(page?.let { p ->
