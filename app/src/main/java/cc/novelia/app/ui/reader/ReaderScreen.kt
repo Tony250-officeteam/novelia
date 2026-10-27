@@ -15,6 +15,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -119,6 +120,7 @@ import kotlinx.serialization.encodeToString
     }
     var preferences by remember { mutableStateOf(false) }; var toc by remember { mutableStateOf(false) }; var search by remember { mutableStateOf(false) }; var query by rememberSaveable { mutableStateOf("") }; var version by remember { mutableIntStateOf(0) }
     var speechSheet by remember { mutableStateOf(false) }
+    var editingTapZones by remember { mutableStateOf(false) }
     val preferenceState = rememberReaderPreferencesState(preferences)
     var tocQuery by rememberSaveable(ref.key) { mutableStateOf(readerEntry?.savedStateHandle?.remove<String>("readerTocQuery").orEmpty()) }
     var tocReversed by rememberSaveable(ref.key) { mutableStateOf(readerEntry?.savedStateHandle?.remove<Boolean>("readerTocReversed") ?: false) }
@@ -400,7 +402,7 @@ import kotlinx.serialization.encodeToString
         }
         var inlineChapterLoad by remember { mutableStateOf(false) }
         DisposableEffect(chapterLoad) { onDispose { chapterLoad.cancel() } }
-        val panelsClosed = !preferences && !search && (!toc || wide) && !speechSheet && !bookSearch && !nextVolumePrompt && selected == null && note == null
+        val panelsClosed = !preferences && !editingTapZones && !search && (!toc || wide) && !speechSheet && !bookSearch && !nextVolumePrompt && selected == null && note == null
         val showTapTutorial = settings.tapPageTurn && !local.readerTapTutorialSeen && panelsClosed && !leaving &&
             !chapterLoad.loading && chapterLoad.error == null && positionState.initialAnchorRestored && !positionState.restoringAnchor && seekTarget == null &&
             (!settings.staticPagination || eInk.ready)
@@ -591,11 +593,12 @@ import kotlinx.serialization.encodeToString
                 true
             } else false
         }.focusable()) {
-            Box(Modifier.matchParentSize().semantics { if(showTapTutorial) hideFromAccessibility() }) {
+            Box(Modifier.matchParentSize().semantics { if(showTapTutorial || editingTapZones) hideFromAccessibility() }) {
             // 两种模式均使用固定正文视口；工具栏是同级浮层，
             // 不得给正文布局增加内边距或尺寸约束。
             val bodyInputEnabled = volumeKeysActive && !leaving && !chapterLoad.loading && !positionState.restoringAnchor && positionState.initialAnchorRestored && seekTarget == null
-            val tapNavigation = rememberReaderTapNavigation(settings.tapPageTurn, bodyInputEnabled, { menu = !menu }, { page(it) })
+            val openToc: () -> Unit = { if(wide) { tocQuery = ""; tocLocateRequest++ } else toc = true }
+            val tapNavigation = rememberReaderTapNavigation(settings.tapPageTurn, bodyInputEnabled, { menu = !menu }, { page(it) }, settings.resolvedTapZoneMap, openToc)
             if(settings.staticPagination) EInkPage(paragraphs, settings, eInk,
                 Modifier.testTag("reader-page").align(Alignment.TopCenter).fillMaxHeight().windowInsetsPadding(readingInsets)
                     .padding(bottom = readingStatusBarHeight)
@@ -603,7 +606,7 @@ import kotlinx.serialization.encodeToString
                 imageModel = { it.imageUrl ?: it.localImageId?.takeIf { ref.isLocal }?.let { id -> c.store.documentImage(ref.id, id) } },
                 onToggleMenu = { menu = !menu }, onSelect = { selected = it }, onPage = { page(it) },
                 background = background, foreground = foreground, activeMatch = activeMatch,
-                interactionEnabled = bodyInputEnabled, contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp))
+                interactionEnabled = bodyInputEnabled, contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp), onNavigate = openToc)
             else LazyColumn(state = scroll, overscrollEffect = null, modifier = Modifier.testTag("reader-scroll").align(Alignment.TopCenter).fillMaxHeight()
                 .windowInsetsPadding(readingInsets).padding(bottom = readingStatusBarHeight).widthIn(max = settings.width.dp).fillMaxWidth()
                 .onSizeChanged { size ->
@@ -620,7 +623,9 @@ import kotlinx.serialization.encodeToString
                 .graphicsLayer { translationY = -chapterPullOffset }
                 , contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(settings.resolvedParagraphSpacing.dp)) {
                 item("title", contentType = "title") {
-                    Column(Modifier.fillMaxWidth().clickable(onClickLabel = "显示或收起阅读工具栏", onClick = tapNavigation::click)) {
+                    Column(Modifier.fillMaxWidth().clickable(
+                        interactionSource = remember { MutableInteractionSource() }, indication = null,
+                        onClickLabel = "显示或收起阅读工具栏", onClick = tapNavigation::click)) {
                         Text(chapter.title, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineMedium, color = foreground, fontFamily = readerFont.family)
                         Spacer(Modifier.height(12.dp))
                         Text(if(ref.isLocal) "本地小说" else (providers[ref.provider].orEmpty() + " · " + if(settings.mode == "jp") "日文原文" else "机翻阅读"), style = MaterialTheme.typography.labelMedium, color = foreground.copy(alpha = .65f))
@@ -709,9 +714,20 @@ import kotlinx.serialization.encodeToString
             }
             }
             if(showTapTutorial) ReaderTapTutorial(settings.staticPagination, settings.eInkMode || eInkInteraction,
-                safeInsets, settings.width, readingStatusBarHeight, Modifier.matchParentSize()) {
+                readingInsets, settings.width, readingStatusBarHeight, Modifier.matchParentSize(), map = settings.resolvedTapZoneMap) {
                 c.store.update { it.copy(readerTapTutorialSeen = true) }
             }
+            if(editingTapZones) ReaderTapZoneEditor(settings.resolvedTapZoneMap, onSave = { map ->
+                c.store.update { current ->
+                    val value = (current.bookSettings[ref.key] ?: current.reader).copy(tapZoneMap = ReaderTapZoneMap.encode(map))
+                    if(current.bookSettings.containsKey(ref.key)) current.copy(bookSettings = current.bookSettings + (ref.key to value))
+                    else current.copy(reader = value)
+                }
+                editingTapZones = false
+            }, onDismiss = { editingTapZones = false },
+                modifier = Modifier.align(Alignment.TopCenter).fillMaxHeight().windowInsetsPadding(readingInsets)
+                    .padding(bottom = readingStatusBarHeight).widthIn(max = settings.width.dp).fillMaxWidth(),
+                staticPagination = settings.staticPagination, eInk = settings.eInkMode || eInkInteraction)
         }
         }
         }
@@ -768,7 +784,9 @@ import kotlinx.serialization.encodeToString
     if(preferences) {
         ReaderPreferencesSheet(onDismissRequest = { preferences = false }) { expanded, onExpandedChange ->
             ReaderPreferences(settings, local.bookSettings.containsKey(ref.key), { perBook -> c.store.update { it.copy(bookSettings = if(perBook) it.bookSettings + (ref.key to settings) else it.bookSettings - ref.key) } },
-                state = preferenceState, modifier = Modifier.fillMaxSize(), livePreview = true, defaultSettings = local.reader, headerActions = {
+                state = preferenceState, modifier = Modifier.fillMaxSize(), livePreview = true, defaultSettings = local.reader,
+                onEditTapZones = { preferences = false; editingTapZones = true },
+                onShowTapTutorial = { preferences = false; c.store.update { it.copy(readerTapTutorialSeen = false) } }, headerActions = {
                     AppIconButton(onClick = { onExpandedChange(!expanded) }) {
                         ReaderSheetExpandIcon(expanded)
                     }

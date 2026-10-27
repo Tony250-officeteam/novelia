@@ -47,6 +47,8 @@ import kotlinx.serialization.Serializable
     val hideStatusBar: Boolean = false,
     // 点击区域独立于滑动手势和电子纸预设，旧设置保持整页点击工具栏的行为。
     val tapPageTurn: Boolean = false,
+    // 点击分区方案（含每格动作）的编码值，移植自 FBReaderJ；空串沿用默认四向翻页。
+    val tapZoneMap: String = "",
     val customColors: ReaderCustomColors = ReaderCustomColors(),
     // 字体文件仅保存在本机；切换系统字体时保留已导入字体，便于切回。
     val fontFamily: String = "system",
@@ -63,6 +65,9 @@ import kotlinx.serialization.Serializable
     // 兼容黑白模式尚未成为主题选项之前保存的设置。
     val resolvedTheme get() = if(monochrome) "monochrome" else theme
     val resolvedCustomColors get() = customColors.takeIf { it.valid } ?: ReaderCustomColors()
+    /** 解析后的点击分区方案；空值或损坏内容回退到默认四向翻页，保证阅读器始终可翻页。 */
+    val resolvedTapZoneMap get() = if (tapZoneMap.isBlank()) cc.novelia.app.reader.ReaderTapZoneMap.Default
+        else cc.novelia.app.reader.ReaderTapZoneMap.decode(tapZoneMap)
     fun withTheme(selected: String) = copy(theme = selected, monochrome = false)
     val staticPagination get() = paginationMode == "auto"
     fun withPaginationMode(selected: String): ReaderSettings {

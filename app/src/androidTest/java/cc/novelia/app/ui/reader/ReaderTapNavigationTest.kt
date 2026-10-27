@@ -18,6 +18,8 @@ import cc.novelia.app.R
 import cc.novelia.app.data.model.ReaderSettings
 import cc.novelia.app.reader.ReadingParagraph
 import cc.novelia.app.reader.TextPart
+import cc.novelia.app.reader.ReaderTapZoneMap
+import cc.novelia.app.reader.ReaderTapAction
 import cc.novelia.app.ui.theme.LocalReducedMotion
 import org.junit.Assert.*
 import org.junit.Rule
@@ -32,6 +34,7 @@ class ReaderTapNavigationTest {
     private var active by mutableStateOf(true)
     private var menus = 0
     private var selections = 0
+    private var navigations = 0
     private val turns = mutableListOf<Int>()
 
     private fun paged(content: List<ReadingParagraph> = paragraphs) {
@@ -41,11 +44,26 @@ class ReaderTapNavigationTest {
                     EInkPage(content, settings, state, Modifier.size(327.dp, 420.dp).testTag("page"),
                         imageModel = { R.drawable.midori_reading }, onToggleMenu = { menus++ }, onSelect = { selections++ },
                         onPage = { turns += it; state.move(it) }, interactionEnabled = active,
-                        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp))
+                        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp), onNavigate = { navigations++ })
                 }
             }
         }
         compose.waitUntil(10_000) { state.ready }
+    }
+
+    @Test fun realDoubleTapOpensDirectoryOnceAndNoneDoesNotToggleMenu() {
+        paged()
+        val page = compose.onNodeWithTag("page")
+        page.performTouchInput { doubleClick(Offset(width * .85f, height * .15f), delayMillis = 100) }
+        compose.waitUntil(3_000) { navigations == 1 }
+        compose.runOnIdle { assertTrue(turns.isEmpty()); assertEquals(0, menus) }
+        page.performTouchInput { advanceEventTime(400); click(Offset(width * .85f, height * .15f)) }
+        compose.waitUntil(3_000) { turns == listOf(1) }
+        compose.runOnIdle {
+            settings = settings.copy(tapZoneMap = ReaderTapZoneMap.encode(ReaderTapZoneMap.Default.withAction(1, 1, false, ReaderTapAction.None)))
+        }
+        page.performTouchInput { click(center) }
+        compose.runOnIdle { assertEquals(0, menus); assertEquals(1, navigations); assertEquals(listOf(1), turns) }
     }
 
     @Test fun zonesIncludeMarginsAndKeepSwipesAndSemanticMenuActionsIndependent() {

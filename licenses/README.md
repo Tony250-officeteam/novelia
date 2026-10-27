@@ -8,6 +8,7 @@
 | `ICU-76.1.txt` | https://github.com/unicode-org/icu/blob/release-76-1/LICENSE | ICU4J 76.1：Unicode-3.0 及附带数据声明 |
 | `MPL-2.0.txt` | https://github.com/spdx/license-list-data/blob/main/text/MPL-2.0.txt | OkHttp 的 Public Suffix List 数据 |
 | `ECH-native.txt` | Go 1.27.1、基于 Jissr Bypass v0.1.1 的本地修改版本及 `native/ech/go.mod` 固定的 Go 模块 | ECH 本地库及 JNI 的 Apache-2.0 / BSD-3-Clause 原文；本地修改及源码见 `native/ech/third_party/jissr-bypass` |
+| `GPL-2.0.txt` | https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt | 改编自 FBReaderJ v2.5.10 的阅读器点击分区与翻页选项；原始许可是 GPL-2.0-or-later，本项目按 GPL-3.0 使用 |
 
 Jsoup 的 MIT 和 CommonMark 的 BSD 原文，以及其他库附带的 LICENSE/NOTICE，直接取自 Gradle 实际解析的 JAR/AAR。完整结果位于 `app/build/generated/openSourceAssets/open-source/NOTICE.txt`，打包为 APK 内 `assets/open-source/NOTICE.txt`。根目录 `LICENSE` 和 `NOTICE.md` 也会并入该文件。
 

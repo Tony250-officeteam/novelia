@@ -189,7 +189,7 @@ internal object WebDavValidation {
 
     private fun readerField(field: String, value: JsonElement) {
         if (field == "devicePreferences") {
-            require(value is JsonObject && value.keys == deviceReaderFields) { "设备偏好原子组字段不完整" }
+            require(value is JsonObject && (value.keys == deviceReaderFields || value.keys == deviceReaderFields - "tapZoneMap")) { "设备偏好原子组字段不完整" }
             value.forEach { (deviceField, deviceValue) -> deviceReaderField(deviceField, deviceValue) }
             return
         }
@@ -220,6 +220,8 @@ internal object WebDavValidation {
             "brightness" -> number(value, -1.0, 1.0)
             "paginationMode" -> enumText(value, setOf("scroll", "auto"))
             "prefetchChapters" -> nonnegativeInt(value, 20)
+            // 点击分区方案的编码串：限长避免同步文件被塞入超大数据，内容本身在解析时再校验。
+            "tapZoneMap" -> text(value, 2_048, true)
             "beforeEInk", "eInkPreferences" -> if (value != JsonNull) {
                 val fields = setOf("paginationMode", "scrollPageTurn", "horizontalPageTurn", "showPageButtons", "volumeKeys")
                 require(value is JsonObject && value.keys == fields) { "设备翻页偏好组无效" }

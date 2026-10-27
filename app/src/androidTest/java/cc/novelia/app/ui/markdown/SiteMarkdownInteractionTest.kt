@@ -49,6 +49,29 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class SiteMarkdownInteractionTest {
+    @Test fun detailsRefreshIsDeferredCoalescedAndSurvivesRepeatedTouches() {
+        show("前文\n\n::: details 折叠测试\n内部正文\n:::\n\n后文")
+        var refreshes = 0
+        compose.runOnIdle {
+            val view = textView()
+            val original = view.refreshMarkdown!!
+            view.refreshMarkdown = { refreshes++; original() }
+            val layout = view.layout
+            val text = view.text as Spanned
+            val toggle = text.getSpans(0, text.length, DetailsToggleSpan::class.java).single()
+            repeat(3) { toggle.onClick(view) }
+            // OEM Editor 在 onTouchEvent 返回前继续读 Layout，此时仍必须保留旧布局。
+            assertEquals(0, refreshes)
+            assertSame(layout, view.layout)
+        }
+        compose.waitForIdle()
+        compose.runOnIdle { assertEquals(1, refreshes); assertNotNull(textView().layout); assertTrue(textView().text.contains("内部正文")) }
+        repeat(20) {
+            tap("折叠测试")
+            compose.runOnIdle { assertNotNull(textView().layout) }
+        }
+        compose.runOnIdle { assertTrue(textView().text.contains("内部正文")) }
+    }
     @get:Rule val compose = createComposeRule()
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     private lateinit var root: View

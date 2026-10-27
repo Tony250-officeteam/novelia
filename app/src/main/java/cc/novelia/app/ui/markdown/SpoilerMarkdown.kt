@@ -161,6 +161,30 @@ internal class SpoilerTextView(context: Context) : TextView(context) {
     private val maskPath = Path()
     private val revealedPath = Path()
     var refreshMarkdown: (() -> Unit)? = null
+
+    /**
+     * 把重渲染推迟到当前触摸事件分发结束之后。
+     *
+     * `setText` 会让 Layout 进入失效状态，而部分 OEM 的 TextView 子类
+     * （例如荣耀 HwEditor）会在 onTouchEvent 尾部继续读取 Layout，
+     * 同步重建会触发空 Layout 的 NullPointerException。用 post 保证顺序。
+     */
+    fun deferMarkdownRefresh() {
+        requestMarkdownRefresh()
+    }
+
+    /** 是否已有待执行的重渲染，避免短时间内重复排队。 */
+    private var refreshQueued = false
+    private val deferredRefresh = Runnable {
+        refreshQueued = false
+        refreshMarkdown?.invoke()
+    }
+
+    /** 排一次重渲染；重复调用合并，防止连点堆积无用的整页重建。 */
+    fun requestMarkdownRefresh() {
+        if (refreshQueued) return
+        refreshQueued = post(deferredRefresh)
+    }
     var documentUrl: String? = null
     var openAnchor: ((String) -> Boolean)? = null
     var openImage: ((String) -> Unit)? = null
@@ -222,6 +246,8 @@ internal class SpoilerTextView(context: Context) : TextView(context) {
 
     override fun onDetachedFromWindow() {
         removeCallbacks(imageLongPress)
+        removeCallbacks(deferredRefresh)
+        refreshQueued = false
         pressedImage = null
         super.onDetachedFromWindow()
     }

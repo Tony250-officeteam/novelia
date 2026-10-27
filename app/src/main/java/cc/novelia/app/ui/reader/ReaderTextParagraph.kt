@@ -3,6 +3,7 @@ package cc.novelia.app.ui.reader
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -29,6 +30,7 @@ import kotlin.math.roundToInt
     val starts = remember(paragraph, settings.indent, settings.parallel) { paragraphPartStarts(paragraph, settings) }
     val latestLayout by rememberUpdatedState(onLayout)
     Column(Modifier.fillMaxWidth().combinedClickable(
+        interactionSource = remember { MutableInteractionSource() }, indication = null,
         onClickLabel = "显示或收起阅读工具栏", onClick = onToggleMenu,
         onLongClickLabel = "选择段落、分享或添加笔记", onLongClick = onSelect
     ), verticalArrangement = Arrangement.spacedBy(8.dp)) {

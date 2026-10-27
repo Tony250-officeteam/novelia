@@ -9,10 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.unit.dp
 import cc.novelia.app.ui.theme.LocalEInkMode
 import cc.novelia.app.ui.theme.appReducedMotion
 import kotlinx.coroutines.delay
@@ -36,21 +33,11 @@ import kotlinx.coroutines.delay
         drawContent()
         if(feedback != null) {
             val strength = if(reducedMotion) 1f else opacity.value
-            val regionWidth = size.width / 3f
-            val left = regionWidth * (feedback.direction + 1)
-            val region = Size(regionWidth, size.height)
-            if(eInk) {
-                // 电子纸只画出和清除一次细边框，不让整片正文连续变色。
-                val stroke = 2.dp.toPx()
-                drawRect(foreground, Offset(left + stroke / 2, stroke / 2),
-                    Size((regionWidth - stroke).coerceAtLeast(0f), (size.height - stroke).coerceAtLeast(0f)), style = Stroke(stroke))
-            } else {
-                drawRect(foreground.copy(alpha = .07f * strength), Offset(left, 0f), region)
-                if(feedback.direction != 0) {
-                    val edge = foreground.copy(alpha = .10f * strength)
-                    val colors = if(feedback.direction < 0) listOf(edge, Color.Transparent) else listOf(Color.Transparent, edge)
-                    drawRect(Brush.horizontalGradient(colors, left, left + regionWidth), Offset(left, 0f), region)
-                }
+            // 轻微提示命中的区域，不绘制轮廓，避免深色页面出现突兀的白框。
+            feedback.bounds.forEach { rect ->
+                drawRect(foreground.copy(alpha = .06f * strength),
+                    Offset(rect.left * size.width, rect.top * size.height),
+                    Size((rect.right - rect.left) * size.width, (rect.bottom - rect.top) * size.height))
             }
         }
     }

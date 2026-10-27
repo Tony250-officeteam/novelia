@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import cc.novelia.app.data.model.ReaderSettings
 import cc.novelia.app.reader.*
 import cc.novelia.app.ui.components.base.AppScrollColumn
+import cc.novelia.app.ui.components.base.AppTextButton
 import cc.novelia.app.ui.components.base.ChoiceRow
 import cc.novelia.app.ui.components.base.TogglePreference
 import cc.novelia.app.ui.markdown.format
@@ -48,10 +49,16 @@ import kotlin.math.roundToInt
     state: ReaderPreferencesState = rememberReaderPreferencesState(), modifier: Modifier = Modifier,
     headerActions: @Composable RowScope.() -> Unit = {}, livePreview: Boolean = false,
     defaultSettings: ReaderSettings? = null,
+    onEditTapZones: (() -> Unit)? = null, onShowTapTutorial: (() -> Unit)? = null,
     onChange: (ReaderSettings) -> Unit) {
     val reducedMotion = appReducedMotion()
     val defaults = defaultSettings.takeIf { perBook == true }
     var tab by state.tab
+    var previewZones by remember { mutableStateOf(false) }
+    if(previewZones) ReaderTapZonePreview(value, onSave = {
+        onChange(value.copy(tapZoneMap = ReaderTapZoneMap.encode(it)))
+        previewZones = false
+    }, onDismiss = { previewZones = false })
     Column(modifier) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("阅读偏好", Modifier.weight(1f).padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 12.dp), style = MaterialTheme.typography.titleLarge)
@@ -107,8 +114,19 @@ import kotlin.math.roundToInt
                         ChoiceRow("分页模式", listOf("连续滚动", "自动分页"), if(value.staticPagination) 1 else 0, defaultSelected = defaults?.let { if(it.staticPagination) 1 else 0 }) { onChange(value.withPaginationMode(if(it == 1) "auto" else "scroll")) }
                         Text(if(value.staticPagination) "按屏幕大小提前排成独立页面，每次翻动一页。" else "整章连续排列，上下滑动浏览，不提前拆成独立页面。",
                             Modifier.padding(horizontal = 20.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        TogglePreference("点击区域翻页", if(value.staticPagination) "点击正文左侧三分之一翻到上一页，右侧三分之一翻到下一页；中间显示或收起工具栏" else "点击正文左侧三分之一翻到上一屏，右侧三分之一翻到下一屏；中间显示或收起工具栏",
+                        TogglePreference("点击区域翻页", if(value.tapPageTurn) "在正文覆盖层调整区域大小，分别设置单击和双击动作" else "开启后可配置区域大小，以及翻页、目录和工具栏等点击动作",
                             value.tapPageTurn, defaultValue = defaults?.tapPageTurn) { onChange(value.copy(tapPageTurn = it)) }
+                        if(value.tapPageTurn) {
+                            val currentMap = value.resolvedTapZoneMap
+                            AppTextButton(onClick = { if(onEditTapZones != null) onEditTapZones() else previewZones = true },
+                                modifier = Modifier.padding(horizontal = 12.dp).testTag("tap-zone-open-editor")) {
+                                Text(if(onEditTapZones != null) "在正文上配置点击区域" else "在示例正文上配置点击区域")
+                            }
+                            Text(currentMap.describe(), Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if(onShowTapTutorial != null) AppTextButton(onClick = onShowTapTutorial,
+                                modifier = Modifier.padding(horizontal = 12.dp)) { Text("查看点击分区教程") }
+                        }
                         if(value.staticPagination) {
                             TogglePreference("滚动翻页", "向上滑动下一页，向下滑动上一页", value.scrollPageTurn, defaultValue = defaults?.scrollPageTurn) { onChange(value.copy(scrollPageTurn = it)) }
                             TogglePreference("左右翻页", "向左滑动下一页，向右滑动上一页", value.horizontalPageTurn, defaultValue = defaults?.horizontalPageTurn) { onChange(value.copy(horizontalPageTurn = it)) }

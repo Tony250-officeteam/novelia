@@ -20,6 +20,16 @@ AndroidX / Compose、Kotlin、kotlinx.coroutines、kotlinx.serialization、OkHtt
 
 完整通用条款及来源记录位于 [licenses](licenses/README.md)。构建时还会从实际 Release 依赖图生成包含版本及 JAR/AAR 内原始 LICENSE/NOTICE 的报告，随 APK 打包；可在「我的 → 帮助与关于 → 开源许可证」离线查看。变更依赖后应复核报告，为依赖包未携带的许可证补入完整文本。
 
+## 阅读器点击分区（改编自 FBReaderJ）
+
+`app/src/main/java/cc/novelia/app/reader/ReaderTapZoneMap.kt` 与 `ReaderPageTurningOptions.kt` 改编自 [FBReaderJ](https://github.com/geometer/FBReaderJ) v2.5.10，原作者 FBReader.ORG Limited &lt;contact@fbreader.org&gt;。
+
+- **原始文件**：`org/geometerplus/fbreader/fbreader/TapZoneMap.java`、`org/geometerplus/fbreader/fbreader/options/PageTurningOptions.java`，以及 `assets/default/tapzones/` 下 `right_to_left.xml`、`left_to_right.xml`、`up.xml`、`down.xml` 四套内置分区布局。
+- **原始许可**：GNU General Public License version 2 or later（GPL-2.0-or-later）。本项目依据其 "or any later version" 条款按 GPL-3.0-only 使用，原始版权声明保留在改编文件头部。
+- **修改内容**：改写为 Kotlin；去掉 `ZLStringOption`、`ZLFile`、SAX 解析依赖，分区表由 XML 资源改为不可变配置；点击动作由字符串改为枚举 `ReaderTapAction`；接入本项目 `ReaderSettings` 持久化。等分网格沿用 FBReader 的归一化命中规则，并扩展为可拖动的行列边界、单击／双击独立判定和相同动作邻格合并。正文覆盖编辑层、教程和点击反馈共享区域几何信息。
+
+GPL-2.0 完整条款见 [licenses/GPL-2.0.txt](licenses/GPL-2.0.txt)。
+
 ## ECH 测试分支的本地传输库
 
 本分支从源码构建 `native/ech`，使用基于 [Jissr Bypass v0.1.1](https://github.com/inqadh/jissr-bypass/tree/v0.1.1) 的本地修改版本（Apache-2.0），源码、原始许可证及修改说明保存在 `native/ech/third_party/jissr-bypass`，通过 Go `replace` 固定使用。修改包括隔离网络切换前后的在途 DNS 查询、保留多个 A/AAAA 地址，以及按 DNS TTL 管理解析缓存。未采用上游有整包大小限制的 Android 适配器。

@@ -4,6 +4,7 @@ package cc.novelia.app.ui.reader
 import cc.novelia.app.ui.components.base.AppTextButton
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -34,7 +35,9 @@ import coil.request.ImageRequest
         // 解码前预留竖图区域，防止图片加载后推移后续段落。
         Box(Modifier.fillMaxWidth().height((maxWidth * 1.35f).coerceIn(180.dp, 900.dp))
             .background(foreground.copy(alpha = .035f))
-            .combinedClickable(onClickLabel = "显示或收起阅读工具栏", onClick = onToggleMenu,
+            .combinedClickable(
+                interactionSource = remember { MutableInteractionSource() }, indication = null,
+                onClickLabel = "显示或收起阅读工具栏", onClick = onToggleMenu,
                 onLongClickLabel = "放大查看插图", onLongClick = { expanded = true }), contentAlignment = Alignment.Center) {
             AsyncImage(request, "小说插图", Modifier.fillMaxSize(), contentScale = ContentScale.Fit,
                 onLoading = { loading = true; failed = false }, onSuccess = { loading = false; failed = false }, onError = { loading = false; failed = true })

@@ -10,6 +10,15 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class WebDavProjectionTest {
+    @Test fun legacyDevicePreferencesCanOmitTapZonesButNotExistingFields() {
+        val group = WebDavProjection.library(LibraryState(), includeDevicePreferences = true)
+            .getValue(SyncDomain.SETTINGS).getValue("@reader").getValue("devicePreferences") as JsonObject
+        WebDavProjection.validateField(SyncDomain.SETTINGS, "@reader", "devicePreferences", group)
+        WebDavProjection.validateField(SyncDomain.SETTINGS, "@reader", "devicePreferences", JsonObject(group - "tapZoneMap"))
+        assertThrows(IllegalArgumentException::class.java) {
+            WebDavProjection.validateField(SyncDomain.SETTINGS, "@reader", "devicePreferences", JsonObject(group - "brightness"))
+        }
+    }
     private val web = BookRef("syosetu", "n1")
     private val local = BookRef("local", "file1")
     private fun documents(state: LibraryState) = SyncReplica(deviceId = "a").track(emptyMap(), WebDavProjection.library(state)).bind("dataset").documents
