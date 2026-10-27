@@ -298,6 +298,11 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap)
     var turn by remember { mutableStateOf<PageTurn?>(null) }
     var turnShift by remember { mutableFloatStateOf(0f) }
     var turnJob by remember { mutableStateOf<Job?>(null) }
+    // 提交后冻结显示的那一帧位图及其对应的纸带游标。
+    // 位图与实时绘制是两套渲染器（色深/抗锯齿不同），切换必然露馅；
+    // 冻结到下一次交互，画面就与动画最后一帧逐像素相同（FBReader onDrawStatic 同款）。
+    var frozen by remember { mutableStateOf<Bitmap?>(null) }
+    var frozenTop by remember { mutableFloatStateOf(-1f) }
     // 点击翻页请求（方向+时间戳）：需要视口尺寸与快照，交给内层 LaunchedEffect。
     var tapTurn by remember { mutableStateOf<Pair<Int, Long>?>(null) }
 
@@ -376,6 +381,14 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap)
                 if (pageAtRow(row) != state.pageIndex) viewportTop = top.coerceAtMost(maxTop)
             }
 
+            // 冻结位图只在「刚提交且尚未移动」时有效：游标一动就释放，回到实时绘制。
+            LaunchedEffect(viewportTop) {
+                if (frozen != null && abs(viewportTop - frozenTop) > 0.5f) {
+                    frozen = null
+                    frozenTop = -1f
+                }
+            }
+
             fun screenRows(top: Float): Pair<Int, Int> {
                 val fromRow = metrics.rowAt(top)
                 var toRow = fromRow
@@ -384,7 +397,8 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap)
             }
 
             fun bake(top: Float): Bitmap {
-                val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565)
+                // ARGB_8888：与实时 StaticLayout 绘制同色深，切换时不留色阶差
+                val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
                 val c = android.graphics.Canvas(bmp)
                 c.drawColor(background.toArgb())
                 val t = top.coerceIn(0f, maxTop)
@@ -437,9 +451,14 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap)
                     if (commit) {
                         val g = goalTopFor(dir)
                         if (g != null) {
+                            val settled = turn?.to
                             Snapshot.withMutableSnapshot {
                                 viewportTop = g
                                 state.seek(pageAtRow(metrics.rowAt(g + viewportH * 0.4f)))
+                                // 冻结刚翻到的位图：下一帧起画的仍是这张图，
+                                // 与动画最后一帧完全一致，不存在渲染器切换。
+                                frozen = settled
+                                frozenTop = g
                                 turn = null
                                 turnShift = 0f
                             }
@@ -459,6 +478,9 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap)
                 val req = tapTurn ?: return@LaunchedEffect
                 tapTurn = null
                 if (turn != null || turnJob?.isActive == true) return@LaunchedEffect
+                // 点击翻页从实时绘制出发：释放冻结位图，保证 from 位图=当前屏
+                frozen = null
+                frozenTop = -1f
                 val g = goalTopFor(req.first)
                 if (g == null) { latestPage(req.first); return@LaunchedEffect }
                 if (!animate) {
@@ -492,6 +514,9 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap)
                                 totalX = 0f; totalY = 0f; axis = 0; locked = false
                                 lastTime = 0L; velX = 0f; velY = 0f
                                 turnJob?.cancel()   // 动画中途按下：冻结现位移继续拖
+                                // 重新开始交互：释放冻结位图，让 bake 从当前游标重新烘焙
+                                frozen = null
+                                frozenTop = -1f
                             },
                             onDragCancel = {
                                 val t = turn
@@ -624,21 +649,27 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap)
                             nc.translate(turnShift, 0f)
                             nc.drawBitmap(t.from, 0f, 0f, null)
                             nc.restoreToCount(save)
-                            val shadow = 16f * densityValue
+                            // 接缝阴影随翻页推进淡出：走到整屏时不能留下一条
+                            // 边缘暗带，否则提交瞬间会看到它消失（闪烁源之一）。
+                            val shadow = 16f * densityValue * (1f - progress)
                             val paint = Paint()
-                            if (turnShift < 0f) {
+                            if (shadow > 0.5f && turnShift < 0f) {
                                 val seam = viewportW + turnShift
                                 paint.shader = LinearGradient(seam, 0f, seam + shadow, 0f, 0x46000000.toInt(), 0, Shader.TileMode.CLAMP)
                                 nc.drawRect(seam, 0f, seam + shadow, viewportH, paint)
-                            } else if (turnShift > 0f) {
+                            } else if (shadow > 0.5f && turnShift > 0f) {
                                 paint.shader = LinearGradient(turnShift - shadow, 0f, turnShift, 0f, 0, 0x46000000.toInt(), Shader.TileMode.CLAMP)
                                 nc.drawRect(turnShift - shadow, 0f, turnShift, viewportH, paint)
                             }
                             paint.shader = null
                         }
                     }
+                } else if (frozen != null && abs(viewportTop - frozenTop) < 0.5f) {
+                    // 刚提交的那一帧：继续显示同一张位图，直到游标被移动。
+                    Canvas(Modifier.fillMaxSize().background(background)) {
+                        drawIntoCanvas { dc -> dc.nativeCanvas.drawBitmap(frozen!!, 0f, 0f, null) }
+                    }
                 } else {
-                    // 静态/滚动：纸带连续渲染，视口内行逐行绘制，上下永远铺满真实文字。
                     val fromRow = metrics.rowAt(viewportTop)
                     var toRow = fromRow
                     while (toRow < lines.size && metrics.yTop(toRow) - viewportTop < viewportH) toRow++
