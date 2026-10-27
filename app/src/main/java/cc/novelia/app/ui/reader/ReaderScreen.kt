@@ -15,6 +15,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -622,7 +623,9 @@ import kotlinx.serialization.encodeToString
                 .graphicsLayer { translationY = -chapterPullOffset }
                 , contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(settings.resolvedParagraphSpacing.dp)) {
                 item("title", contentType = "title") {
-                    Column(Modifier.fillMaxWidth().clickable(onClickLabel = "显示或收起阅读工具栏", onClick = tapNavigation::click)) {
+                    Column(Modifier.fillMaxWidth().clickable(
+                        interactionSource = remember { MutableInteractionSource() }, indication = null,
+                        onClickLabel = "显示或收起阅读工具栏", onClick = tapNavigation::click)) {
                         Text(chapter.title, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineMedium, color = foreground, fontFamily = readerFont.family)
                         Spacer(Modifier.height(12.dp))
                         Text(if(ref.isLocal) "本地小说" else (providers[ref.provider].orEmpty() + " · " + if(settings.mode == "jp") "日文原文" else "机翻阅读"), style = MaterialTheme.typography.labelMedium, color = foreground.copy(alpha = .65f))

@@ -18,6 +18,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -350,7 +351,10 @@ private fun PageBody(
     modifier: Modifier = Modifier,
 ) {
 
-    Column(modifier.combinedClickable(onClickLabel = "显示或收起阅读工具栏", onClick = tapNavigation::click)) {
+    // 正文仅显示 readerTapFeedback 的分区提示，避免默认涟漪按容器大小给整页染色。
+    Column(modifier.combinedClickable(
+        interactionSource = remember { MutableInteractionSource() }, indication = null,
+        onClickLabel = "显示或收起阅读工具栏", onClick = tapNavigation::click)) {
         page?.lines?.groupBy { it.paragraph }?.entries?.forEachIndexed { groupIndex, (index, lines) ->
             if (groupIndex > 0) Spacer(Modifier.height(settings.resolvedParagraphSpacing.dp))
             val paragraph = chapter.paragraphs[index]
@@ -361,7 +365,9 @@ private fun PageBody(
                     ImageRequest.Builder(context).data(model).setParameter("readerRetry", retry).crossfade(false).build()
                 }
                 var failed by remember(model) { mutableStateOf(false) }
-                Box(Modifier.fillMaxSize().combinedClickable(onClick = tapNavigation::click,
+                Box(Modifier.fillMaxSize().combinedClickable(
+                    interactionSource = remember { MutableInteractionSource() }, indication = null,
+                    onClick = tapNavigation::click,
                     onLongClickLabel = "放大查看插图", onLongClick = { onExpandImage(model) }), contentAlignment = Alignment.Center) {
                     AsyncImage(request, "小说插图", Modifier.fillMaxSize(), contentScale = ContentScale.Fit,
                         onLoading = { failed = false }, onSuccess = { failed = false }, onError = { failed = true })
@@ -380,7 +386,9 @@ private fun PageBody(
                 val visibleText = layout.text.subSequence(lines.first().start, lines.last().end).toString()
                 Canvas(Modifier.fillMaxWidth().height(with(density) { (sliceHeight * drawScale).toDp() }).clipToBounds()
                     .semantics { text = AnnotatedString(visibleText) }
-                    .combinedClickable(onClickLabel = "显示或收起阅读工具栏", onClick = tapNavigation::click,
+                    .combinedClickable(
+                        interactionSource = remember { MutableInteractionSource() }, indication = null,
+                        onClickLabel = "显示或收起阅读工具栏", onClick = tapNavigation::click,
                         onLongClickLabel = "选择段落、分享或添加笔记", onLongClick = { onSelect(paragraph) })) {
                     drawIntoCanvas { canvas ->
                         val native = canvas.nativeCanvas
