@@ -229,15 +229,20 @@ private class LineMetrics(lines: List<PageLine>, spacingPx: Float) {
  * 整章行纸带绘制：实时渲染与翻页位图共用同一段代码，
  * 保证「位图动画终点的像素」与「提交后纸带的像素」逐像素一致——
  * 这是翻页提交不闪的根据（FBReader 位图模型的无缝条件）。
- * 插图行在位图烘焙里画占位底色，实时渲染由 Compose 叠加真实插图。
+ *
+ * 纵向位置用**相对累加**而不是 metrics 绝对行顶：
+ * paginateLines 在页首不计段距（page.isNotEmpty() 才加 gap），
+ * 若这里用绝对行顶，每页会多算一个段距 → 比页表少显示一行 → 页码与内容错位（串行）。
  */
-private fun drawStrip(canvas: android.graphics.Canvas, top: Float, fromRow: Int, toRow: Int,
-    chapter: MeasuredEInkChapter, metrics: LineMetrics, settings: ReaderSettings,
+private fun drawStrip(canvas: android.graphics.Canvas, fromRow: Int, toRow: Int,
+    chapter: MeasuredEInkChapter, settings: ReaderSettings, spacingPx: Float,
     foregroundArgb: Int, activeMatch: ReadingTextMatch?, heightPx: Int) {
     val lines = chapter.allLines
+    var y = 0f
     for (i in fromRow until toRow) {
         val line = lines[i]
-        val y = metrics.yTop(i) - top
+        // 页首行不加段距，与 paginateLines 的 used 累加严格一致
+        if (i > fromRow && line.paragraph != lines[i - 1].paragraph) y += spacingPx
         if (line.image) {
             val box = Paint().apply { color = android.graphics.Color.argb(40, 127, 127, 127) }
             canvas.drawRect(0f, y, canvas.width.toFloat(), (y + line.height).coerceAtMost(heightPx.toFloat()), box)
@@ -259,11 +264,12 @@ private fun drawStrip(canvas: android.graphics.Canvas, top: Float, fromRow: Int,
             layout.draw(canvas)
             canvas.restoreToCount(save)
         }
+        y += line.height
     }
 }
 
 /** 横向翻页快照（FBReader AnimationProvider 模型）：两张整屏位图，动画只搬运像素。 */
-private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap)
+private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap, val goalTop: Float)
 
 /**
  * 阅读器分页正文。模型：整章 = 一条连续行纸带 + 一个像素游标 viewportTop。
@@ -370,38 +376,45 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap)
             }
             val page = state.current
 
-            // 外部定位（章节切换、书签跳转、进度拖拽）才重置游标；
-            // 内部翻页提交不经过这里——它已自行对齐，再拉回页顶就会丢位置。
+            // 外部定位（章节切换）才重置游标。
             LaunchedEffect(chapter) {
                 viewportTop = (pageStartY(state.pageIndex) ?: 0f).coerceAtMost(maxTop)
             }
-            // 外部跳页（进度条/书签/卷键）会改页码且游标不在该页范围：拉回该页页顶。
-            // 内部提交用的基准与这里一致（都是视口 40% 行），不会误伤刚翻到的位置。
-            LaunchedEffect(state.pageIndex) {
-                if (turn != null) return@LaunchedEffect
-                val top = pageStartY(state.pageIndex) ?: return@LaunchedEffect
-                val row = metrics.rowAt(viewportTop + viewportH * 0.4f)
-                if (pageAtRow(row) != state.pageIndex) viewportTop = top.coerceAtMost(maxTop)
-            }
+            // 已注释：页码只是「游标落在哪一页」的标签，不是真相源。
+            // 这段事后回拉会把纵向滑到的行位置打回页顶（位置记不住），
+            // 还会让刚提交的冻结位图立刻失效（翻完再闪）。真相源只有 viewportTop。
+            // LaunchedEffect(state.pageIndex) {
+            //     if (turn != null || frozen != null) return@LaunchedEffect
+            //     val top = pageStartY(state.pageIndex) ?: return@LaunchedEffect
+            //     val row = metrics.rowAt(viewportTop + viewportH * 0.4f)
+            //     if (pageAtRow(row) != state.pageIndex) viewportTop = top.coerceAtMost(maxTop)
+            // }
 
-            // 冻结位图只在「刚提交且尚未移动」时有效：游标一动就释放，回到实时绘制。
-            LaunchedEffect(viewportTop) {
-                if (frozen != null && abs(viewportTop - frozenTop) > 0.5f) {
-                    frozen = null
-                    frozenTop = -1f
-                }
-            }
+            // 已注释：冻结位图由交互主动释放（onDragStart / tapTurn），
+            // 这里按游标差值被动清除会和提交时序抢跑，反而制造闪帧。
+            // LaunchedEffect(viewportTop) {
+            //     if (frozen != null && abs(viewportTop - frozenTop) > 0.5f) {
+            //         frozen = null
+            //         frozenTop = -1f
+            //     }
+            // }
 
             /**
-             * 当前视口能完整容纳的行区间 [fromRow, toRow)。
-             * 只收完整行：视口高度不是行高整数倍时宁可底部留白，
-             * 也不让最后一行被裁掉一半（FBReader buildInfos 的取舍）。
-             * 单行高于整个视口时至少保留一行，避免整屏空白。
+             * 从 fromRow 起能完整容纳的行区间 [fromRow, toRow)。
+             * 累加规则与 paginateLines / drawStrip 严格一致：
+             * 页首行不计段距，其余段首加 spacingPx，只收完整行
+             * （视口底部留白 < 一行高，绝不切行）。
              */
-            fun screenRows(top: Float): Pair<Int, Int> {
-                val fromRow = metrics.rowAt(top)
+            fun screenRows(fromRow: Int): Pair<Int, Int> {
                 var toRow = fromRow
-                while (toRow < lines.size && metrics.yTop(toRow + 1) - top <= viewportH) toRow++
+                var used = 0f
+                while (toRow < lines.size) {
+                    val line = lines[toRow]
+                    val gap = if (toRow > fromRow && line.paragraph != lines[toRow - 1].paragraph) spacingPx else 0f
+                    if (used + gap + line.height > viewportH) break
+                    used += gap + line.height
+                    toRow++
+                }
                 if (toRow == fromRow && fromRow < lines.size) toRow = fromRow + 1
                 return fromRow to toRow
             }
@@ -421,8 +434,8 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap)
                 val c = android.graphics.Canvas(bmp)
                 c.drawColor(background.toArgb())
                 val t = top.coerceIn(0f, maxTop)
-                val (fromRow, toRow) = screenRows(t)
-                drawStrip(c, t, fromRow, toRow, chapter, metrics, settings, foreground.toArgb(), activeMatch, height)
+                val (fromRow, toRow) = screenRows(metrics.rowAt(t))
+                drawStrip(c, fromRow, toRow, chapter, settings, spacingPx, foreground.toArgb(), activeMatch, height)
                 return bmp
             }
 
@@ -435,8 +448,8 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap)
                 val c = android.graphics.Canvas(bmp)
                 c.drawColor(background.toArgb())
                 val t = top.coerceIn(0f, maxTop)
-                val (fromRow, toRow) = screenRows(t)
-                drawStrip(c, t, fromRow, toRow, chapter, metrics, settings, foreground.toArgb(), activeMatch, height)
+                val (fromRow, toRow) = screenRows(metrics.rowAt(t))
+                drawStrip(c, fromRow, toRow, chapter, settings, spacingPx, foreground.toArgb(), activeMatch, height)
                 return bmp
             }
 
@@ -444,21 +457,25 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap)
              * 行单位的翻页目标：前进 = 当前屏底行的下一行起新的一屏，
              * 后退 = 按当前屏行数往前一屏。起点永远是「正在看的屏」而非页表，
              * 纵向滚到哪、左右翻页就衔接哪，不会按旧页表跳走造成重复或倒退。
+             * 目标用「行索引」表达（不是像素），返回给调用方换算 yTop，
+             * 避免绝对行顶与相对累加两套坐标互相打架。
              * 越出章界返回 null（交外层跨章）。
              */
-            fun goalTopFor(dir: Int): Float? {
+            fun goalRowFor(dir: Int): Int? {
                 val top = viewportTop.coerceIn(0f, maxTop)
-                val (fromRow, toRow) = screenRows(top)
+                val (fromRow, toRow) = screenRows(metrics.rowAt(top))
                 return if (dir > 0) {
-                    if (toRow >= lines.size) null
-                    else metrics.yTop(toRow).coerceAtMost(maxTop).takeIf { it > top + 0.5f }
+                    if (toRow >= lines.size) null else toRow
                 } else {
-                    if (fromRow == 0) null
-                    else {
-                        val newFrom = (fromRow - (toRow - fromRow)).coerceAtLeast(0)
-                        metrics.yTop(newFrom).takeIf { it < top - 0.5f }
-                    }
+                    if (fromRow == 0) null else (fromRow - (toRow - fromRow)).coerceAtLeast(0)
                 }
+            }
+
+            /** 目标行的纸带游标（绝对像素），供 bake / 动画使用。 */
+            fun goalTopFor(dir: Int): Float? {
+                val row = goalRowFor(dir) ?: return null
+                val top = metrics.yTop(row).coerceIn(0f, maxTop)
+                return top.takeIf { abs(it - viewportTop) > 0.5f }
             }
 
             // 位移动画 from → 终点；commit=true 走满整屏，在同一快照里
@@ -479,18 +496,18 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap)
                         }
                     }
                     // 收尾必须原子：先对齐游标再清快照。
-                    // 若先清 turn 再改 viewportTop，中间会有一帧用旧游标渲染纸带，
-                    // 就是「翻页完成后再闪一下旧页」的根因。
+                    // 关键：目标位置必须用快照里烘焙时的 goalTop，
+                    // 不能重新调用 goalTopFor——那时 state 可能已被 seek 改过，
+                    // 重算出的目标与动画终点位图不一致，冻结帧就对不上，闪一下。
                     if (commit) {
-                        val g = goalTopFor(dir)
-                        if (g != null) {
-                            val settled = turn?.to
+                        val settled = turn
+                        val g = settled?.goalTop
+                        if (settled != null && g != null) {
                             Snapshot.withMutableSnapshot {
                                 viewportTop = g
                                 state.seek(pageAtRow(metrics.rowAt(g + viewportH * 0.4f)))
-                                // 冻结刚翻到的位图：下一帧起画的仍是这张图，
-                                // 与动画最后一帧完全一致，不存在渲染器切换。
-                                frozen = settled
+                                // 冻结动画终点位图：下一帧画的就是这张，像素完全一致
+                                frozen = settled.to
                                 frozenTop = g
                                 turn = null
                                 turnShift = 0f
@@ -524,7 +541,10 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap)
                     latestSave()
                     return@LaunchedEffect
                 }
-                turn = PageTurn(req.first, bake(viewportTop), bake(g))
+                // 点击翻页同样复用缓冲：主线程新建两块 27MB 会卡出一帧（观感即闪）
+                val from = bakeInto(0, viewportTop)
+                val to = bakeInto(1, g)
+                turn = PageTurn(req.first, from, to, g)
                 runTurn(req.first, 0f, true, AppMotion.Standard)
             }
 
@@ -547,9 +567,11 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap)
                                 totalX = 0f; totalY = 0f; axis = 0; locked = false
                                 lastTime = 0L; velX = 0f; velY = 0f
                                 turnJob?.cancel()   // 动画中途按下：冻结现位移继续拖
-                                // 重新开始交互：释放冻结位图，让 bake 从当前游标重新烘焙
-                                frozen = null
-                                frozenTop = -1f
+                                // 这里绝不能清 frozen：单击也会触发 onDragStart
+                                // （手指按下即回调），一旦在此释放冻结位图，
+                                // 点击翻页约 0.2 秒后画面会切回实时渲染并整页跳一下
+                                // ——那正是「动画结束后闪一下」的真正来源。
+                                // 需要重烘时由 axis 锁定后的 bakeInto 覆盖即可。
                             },
                             onDragCancel = {
                                 val t = turn
@@ -627,7 +649,7 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap)
                                         // 复用两块缓冲，避免每次换向都新建 54MB
                                         val from = bakeInto(0, viewportTop)
                                         val to = bakeInto(1, g)
-                                        turn = PageTurn(dir, from, to)
+                                        turn = PageTurn(dir, from, to, g)
                                         turnShift = totalX
                                     } else if (t != null) { turn = null; turnShift = 0f }
                                 } else {
@@ -702,14 +724,12 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap)
                             paint.shader = null
                         }
                     }
-                } else if (frozen != null && abs(viewportTop - frozenTop) < 0.5f) {
-                    // 刚提交的那一帧：继续显示同一张位图，直到游标被移动。
-                    Canvas(Modifier.fillMaxSize().background(background)) {
-                        drawIntoCanvas { dc -> dc.nativeCanvas.drawBitmap(frozen!!, 0f, 0f, null) }
-                    }
                 } else {
                     // 静态/滚动：只画完整行，底部留白 < 一行高，绝不切行。
-                    val (fromRow, toRow) = screenRows(viewportTop)
+                    // 冻结位图与实时绘制放在**同一个 Canvas 节点**里分支：
+                    // 若拆成两个 Canvas，Compose 切换节点时会重建，可能丢一帧造成闪烁。
+                    val (fromRow, toRow) = screenRows(metrics.rowAt(viewportTop))
+                    val showFrozen = frozen != null && abs(viewportTop - frozenTop) < 0.5f
                     Canvas(Modifier.fillMaxSize()
                         .semantics {
                             text = AnnotatedString(page?.let { p ->
@@ -721,35 +741,44 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap)
                         }) {
                         drawIntoCanvas { dc ->
                             val nc = dc.nativeCanvas
-                            nc.drawColor(background.toArgb())
-                            drawStrip(nc, viewportTop, fromRow, toRow, chapter, metrics, settings, foreground.toArgb(), activeMatch, height)
+                            if (showFrozen) {
+                                nc.drawBitmap(frozen!!, 0f, 0f, null)
+                            } else {
+                                nc.drawColor(background.toArgb())
+                                drawStrip(nc, fromRow, toRow, chapter, settings, spacingPx, foreground.toArgb(), activeMatch, height)
+                            }
                         }
                     }
                     // 视口内插图：真实 Coil 图叠加在纸带行位上（烘焙位图只有占位色）。
+                    // y 必须用与 drawStrip 相同的相对累加算，否则插图会与文字错位。
                     val expandImage: (Any?) -> Unit = { expandedImage = it }
+                    var imgY = 0f
                     for (i in fromRow until toRow) {
                         val line = lines[i]
-                        if (!line.image) continue
-                        val paragraph = chapter.paragraphs[line.paragraph]
-                        val model = imageModel(paragraph)
-                        var retry by remember(model) { mutableIntStateOf(0) }
-                        val y = (metrics.yTop(i) - viewportTop).roundToInt()
-                        Box(Modifier.offset { IntOffset(0, y) }.size(width.dp, (line.height / densityValue).dp)
-                            .clipToBounds()
-                            .combinedClickable(onClick = tapNavigation::click,
-                                onLongClickLabel = "放大查看插图", onLongClick = { expandImage(model) }),
-                            contentAlignment = Alignment.Center) {
-                            val request = remember(context, model, retry) {
-                                ImageRequest.Builder(context).data(model).setParameter("readerRetry", retry).crossfade(false).build()
-                            }
-                            var failed by remember(model) { mutableStateOf(false) }
-                            AsyncImage(request, "小说插图", Modifier.fillMaxSize(), contentScale = ContentScale.Fit,
-                                onLoading = { failed = false }, onSuccess = { failed = false }, onError = { failed = true })
-                            if (failed) Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("插图暂时无法加载", color = foreground)
-                                AppTextButton(onClick = { retry++ }) { Text("重新加载插图", color = foreground) }
+                        if (i > fromRow && line.paragraph != lines[i - 1].paragraph) imgY += spacingPx
+                        if (line.image) {
+                            val paragraph = chapter.paragraphs[line.paragraph]
+                            val model = imageModel(paragraph)
+                            var retry by remember(model) { mutableIntStateOf(0) }
+                            val y = imgY.roundToInt()
+                            Box(Modifier.offset { IntOffset(0, y) }.size(width.dp, (line.height / densityValue).dp)
+                                .clipToBounds()
+                                .combinedClickable(onClick = tapNavigation::click,
+                                    onLongClickLabel = "放大查看插图", onLongClick = { expandImage(model) }),
+                                contentAlignment = Alignment.Center) {
+                                val request = remember(context, model, retry) {
+                                    ImageRequest.Builder(context).data(model).setParameter("readerRetry", retry).crossfade(false).build()
+                                }
+                                var failed by remember(model) { mutableStateOf(false) }
+                                AsyncImage(request, "小说插图", Modifier.fillMaxSize(), contentScale = ContentScale.Fit,
+                                    onLoading = { failed = false }, onSuccess = { failed = false }, onError = { failed = true })
+                                if (failed) Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("插图暂时无法加载", color = foreground)
+                                    AppTextButton(onClick = { retry++ }) { Text("重新加载插图", color = foreground) }
+                                }
                             }
                         }
+                        imgY += line.height
                     }
                 }
             }

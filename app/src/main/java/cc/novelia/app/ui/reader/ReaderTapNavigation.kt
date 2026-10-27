@@ -165,7 +165,9 @@ internal class ReaderTapNavigation(private val scope: CoroutineScope) {
             ReaderTapAction.NextPage -> onPage(1)
             ReaderTapAction.Navigate -> onNavigate()
             ReaderTapAction.Menu -> onToggleMenu()
-            ReaderTapAction.None -> Unit
+            // None = 该格不翻页，但点正文仍应能开合工具栏。
+            // 旧默认方案的中心格就是 None，静默返回会让「点中间毫无反应」。
+            ReaderTapAction.None -> onToggleMenu()
         }
     }
 }
