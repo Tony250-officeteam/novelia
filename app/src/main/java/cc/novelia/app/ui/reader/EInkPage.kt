@@ -269,7 +269,10 @@ private fun drawStrip(canvas: android.graphics.Canvas, fromRow: Int, toRow: Int,
 }
 
 /** 横向翻页快照（FBReader AnimationProvider 模型）：两张整屏位图，动画只搬运像素。 */
-private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap, val goalTop: Float)
+private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap, val goalTop: Float) {
+    /** 动画已走完、但快照仍持有：画面停在终点帧，不切分支（防旧页诈尸）。 */
+    var settled = false
+}
 
 /**
  * 阅读器分页正文。模型：整章 = 一条连续行纸带 + 一个像素游标 viewportTop。
@@ -376,8 +379,12 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap, val goalT
             }
             val page = state.current
 
-            // 外部定位（章节切换）才重置游标。
+            // 章节切换：清掉所有翻页快照与冻结位图，按新章节重新定位
             LaunchedEffect(chapter) {
+                turn = null
+                turnShift = 0f
+                frozen = null
+                frozenTop = -1f
                 viewportTop = (pageStartY(state.pageIndex) ?: 0f).coerceAtMost(maxTop)
             }
             // 已注释：页码只是「游标落在哪一页」的标签，不是真相源。
@@ -495,10 +502,13 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap, val goalT
                             if (f >= 1f) done = true
                         }
                     }
-                    // 收尾必须原子：先对齐游标再清快照。
-                    // 关键：目标位置必须用快照里烘焙时的 goalTop，
-                    // 不能重新调用 goalTopFor——那时 state 可能已被 seek 改过，
-                    // 重算出的目标与动画终点位图不一致，冻结帧就对不上，闪一下。
+                    // 收尾：**不切分支**。
+                    // 真机上「A 诈尸」的成因是：动画结束瞬间 turn 由非空变空，
+                    // 绘制从动画分支跳到静态分支，荣耀合成器在该帧仍取旧 DisplayList
+                    //（含被推走的 A），于是 A 闪现一帧。
+                    // 这里让快照继续持有、turnShift 停在终点（A 已在屏幕外），
+                    // 后续每帧仍走同一条动画分支，画面就是纯 B 位图，绘制路径零变化。
+                    // 真正清理推迟到下一次手势，那时用户正在交互，察觉不到。
                     if (commit) {
                         val settled = turn
                         val g = settled?.goalTop
@@ -506,11 +516,10 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap, val goalT
                             Snapshot.withMutableSnapshot {
                                 viewportTop = g
                                 state.seek(pageAtRow(metrics.rowAt(g + viewportH * 0.4f)))
-                                // 冻结动画终点位图：下一帧画的就是这张，像素完全一致
+                                // 冻结终点位图：下一次清快照时静态分支画的就是它，像素一致
                                 frozen = settled.to
                                 frozenTop = g
-                                turn = null
-                                turnShift = 0f
+                                settled.settled = true
                             }
                             latestSave()
                         } else {
@@ -527,10 +536,13 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap, val goalT
             LaunchedEffect(tapTurn) {
                 val req = tapTurn ?: return@LaunchedEffect
                 tapTurn = null
-                if (turn != null || turnJob?.isActive == true) return@LaunchedEffect
-                // 点击翻页从实时绘制出发：释放冻结位图，保证 from 位图=当前屏
-                frozen = null
-                frozenTop = -1f
+                val cur = turn
+                // 动画进行中忽略点击；已停在终点（settled）则可以继续翻
+                if (cur != null && !cur.settled) return@LaunchedEffect
+                if (turnJob?.isActive == true) return@LaunchedEffect
+                // 释放终态快照：静态分支画冻结位图（就是刚看到的 B），像素不变
+                turn = null
+                turnShift = 0f
                 val g = goalTopFor(req.first)
                 if (g == null) { latestPage(req.first); return@LaunchedEffect }
                 if (!animate) {
@@ -567,11 +579,10 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap, val goalT
                                 totalX = 0f; totalY = 0f; axis = 0; locked = false
                                 lastTime = 0L; velX = 0f; velY = 0f
                                 turnJob?.cancel()   // 动画中途按下：冻结现位移继续拖
-                                // 这里绝不能清 frozen：单击也会触发 onDragStart
-                                // （手指按下即回调），一旦在此释放冻结位图，
-                                // 点击翻页约 0.2 秒后画面会切回实时渲染并整页跳一下
-                                // ——那正是「动画结束后闪一下」的真正来源。
-                                // 需要重烘时由 axis 锁定后的 bakeInto 覆盖即可。
+                                // 停在终点的快照（settled）在这里释放：静态分支会画
+                                // 冻结位图（就是刚才那张 B），画面不变。
+                                if (turn?.settled == true) { turn = null; turnShift = 0f }
+                                // frozen 不能清：静态分支靠它保证按下瞬间画面不变。
                             },
                             onDragCancel = {
                                 val t = turn
