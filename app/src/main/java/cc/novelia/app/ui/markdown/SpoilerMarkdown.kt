@@ -170,20 +170,20 @@ internal class SpoilerTextView(context: Context) : TextView(context) {
      * 同步重建会触发空 Layout 的 NullPointerException。用 post 保证顺序。
      */
     fun deferMarkdownRefresh() {
-        post { refreshMarkdown?.invoke() }
+        requestMarkdownRefresh()
     }
 
     /** 是否已有待执行的重渲染，避免短时间内重复排队。 */
     private var refreshQueued = false
+    private val deferredRefresh = Runnable {
+        refreshQueued = false
+        refreshMarkdown?.invoke()
+    }
 
     /** 排一次重渲染；重复调用合并，防止连点堆积无用的整页重建。 */
     fun requestMarkdownRefresh() {
         if (refreshQueued) return
-        refreshQueued = true
-        post {
-            refreshQueued = false
-            refreshMarkdown?.invoke()
-        }
+        refreshQueued = post(deferredRefresh)
     }
     var documentUrl: String? = null
     var openAnchor: ((String) -> Boolean)? = null
@@ -246,6 +246,8 @@ internal class SpoilerTextView(context: Context) : TextView(context) {
 
     override fun onDetachedFromWindow() {
         removeCallbacks(imageLongPress)
+        removeCallbacks(deferredRefresh)
+        refreshQueued = false
         pressedImage = null
         super.onDetachedFromWindow()
     }
