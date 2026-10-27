@@ -61,6 +61,9 @@ import androidx.compose.animation.core.spring
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.Density
 import kotlinx.coroutines.launch
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.runtime.mutableFloatStateOf
 
 /**
  * 静态分页的位置状态，适用于普通屏幕和电子纸。页码是测量结果，持久定位使用段落及字符锚点。
@@ -121,7 +124,9 @@ import kotlinx.coroutines.launch
     }
 }
 
-internal data class MeasuredEInkChapter(val paragraphs: List<ReadingParagraph>, val layouts: Map<Int, StaticLayout>, val pages: List<StaticPage>)
+internal data class MeasuredEInkChapter(val paragraphs: List<ReadingParagraph>, val layouts: Map<Int, StaticLayout>, val pages: List<StaticPage>,
+    /** 整章行序列（含段距），行级滚动按它推进。 */
+    val allLines: List<PageLine> = emptyList())
 private data class EInkMeasureInput(val paragraphs: List<ReadingParagraph>, val typography: List<Any>, val width: Int, val height: Int, val density: Float, val fontScale: Float)
 private data class EInkMeasurement(val input: EInkMeasureInput, val chapter: MeasuredEInkChapter)
 
@@ -176,7 +181,9 @@ internal fun measureEInkChapter(paragraphs: List<ReadingParagraph>, settings: Re
         }
     }
     val pairedParagraphs = paragraphs.indices.filterTo(mutableSetOf()) { paragraphs[it].parts.size > 1 }
-    return MeasuredEInkChapter(paragraphs, layouts, paginateLines(lines, height, (settings.resolvedParagraphSpacing * density).roundToInt(), pairedParagraphs, checkCancelled))
+    return MeasuredEInkChapter(paragraphs, layouts,
+        paginateLines(lines, height, (settings.resolvedParagraphSpacing * density).roundToInt(), pairedParagraphs, checkCancelled),
+        allLines = lines.toList())
 }
 
 /**
@@ -197,77 +204,183 @@ internal fun measureEInkChapter(paragraphs: List<ReadingParagraph>, settings: Re
     val font = rememberReaderFont(settings)
     var expandedImage by remember { mutableStateOf<Any?>(null) }
     val animate = !settings.eInkMode && !LocalEInkMode.current && !LocalReducedMotion.current && ValueAnimator.areAnimatorsEnabled()
-    val pageShift = remember { Animatable(0f) }
-    // 跟手翻页：拖动时当前页与相邻页一起平移，松手按距离/速度决定翻页或回弹。
-    // 与点击翻页的短促过渡区分：点击走 pageShift，拖动走 dragOffset。
-    val dragOffset = remember { Animatable(0f) }
-    var dragAxis by remember { mutableStateOf(0) }   // 0=横向, 1=纵向
-    var dragTarget by remember { mutableIntStateOf(0) }  // 本次拖动的目标方向 ±1
+    // 单一源左右翻页动画状态：消除双重动画和时序打架带来的画面闪烁
+    val animOffset = remember { Animatable(0f) }
+    var dragAxis by remember { mutableIntStateOf(0) } // 0: 横向, 1: 纵向
     val dragScope = rememberCoroutineScope()
-    var lastPage by remember { mutableStateOf<Pair<List<StaticPage>, Int>?>(null) }
-    LaunchedEffect(state.pages, state.pageIndex, animate) {
-        val previous = lastPage
-        lastPage = state.pages to state.pageIndex
-        if(animate && previous != null && previous.first === state.pages && previous.second != state.pageIndex) {
-            pageShift.snapTo(if(state.pageIndex > previous.second) 1f else -1f)
-            pageShift.animateTo(0f, tween(AppMotion.Page))
-        } else pageShift.snapTo(0f)
-    }
+    val densityValue = density.density
     val latestPage by rememberUpdatedState(onPage)
-    val tapNavigation = rememberReaderTapNavigation(settings.tapPageTurn, interactionEnabled && expandedImage == null, onToggleMenu, onPage, settings.resolvedTapZoneMap)
-    BoxWithConstraints(modifier.background(background).clipToBounds()
-        .readerTapFeedback(tapNavigation, foreground, settings.eInkMode || LocalEInkMode.current)
-        .readerTapNavigation(tapNavigation).pointerInput(settings.scrollPageTurn, settings.horizontalPageTurn, animate) {
-        var x = 0f; var y = 0f
-        var axis = 0
-        var locked = false
-        detectDragGestures(
-            onDragStart = { x = 0f; y = 0f; locked = false },
-            onDragCancel = {
-                x = 0f; y = 0f
-                dragScope.launch { dragOffset.animateTo(0f, tween(if(animate) AppMotion.Quick else 0)) }
-            },
-            onDragEnd = {
-                val horizontal = axis == 0
-                val enabled = if(horizontal) settings.horizontalPageTurn else settings.scrollPageTurn
-                val delta = if(horizontal) x else y
-                val extent = if(horizontal) size.width.toFloat() else size.height.toFloat()
-                val target = if(delta < 0) 1 else -1
-                if(!enabled || !tapNavigation.canSwipe || !animate) {
-                    // 关闭跟手动画时退回整页跳转，保持电子纸与减少动效的低功耗行为。
-                    if(enabled && tapNavigation.canSwipe && abs(delta) >= 40.dp.toPx()) latestPage(target)
-                    dragScope.launch { dragOffset.snapTo(0f) }
-                } else {
-                    // 松手判定：越过 1/4 屏或速度足够快即翻页，否则回弹。
-                    val passed = abs(delta) >= extent * .25f || abs(dragOffset.value) >= extent * .25f
-                    if(passed) {
-                        dragScope.launch {
-                            dragOffset.animateTo(if(target > 0) -extent else extent, tween(AppMotion.Page))
-                            latestPage(target)
-                            dragOffset.snapTo(0f)
-                        }
-                    } else dragScope.launch { dragOffset.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow)) }
-                }
-                x = 0f; y = 0f
-            }) { change, amount ->
-            change.consume()
-            if(!locked) { axis = if(abs(amount.x) > abs(amount.y)) 0 else 1; locked = true; dragAxis = axis }
-            if(axis == 0) {
-                x += amount.x
-                if(animate) dragScope.launch { dragOffset.snapTo(dragOffset.value + amount.x) }
-            } else {
-                y += amount.y
-                if(animate) dragScope.launch { dragOffset.snapTo(dragOffset.value + amount.y) }
+
+    // 纵向行级位移偏移（像素）
+    val verticalLineOffset = remember { Animatable(0f) }
+    // 纵向当前行起点偏移（以当前基准页第一行为 0 基准，增加为往后移 N 行）
+    var lineIndexOffset by remember(state.pageIndex, state.pages) { mutableIntStateOf(0) }
+
+    // 左右翻页执行函数：动画彻底完成后才调用 latestPage(dir) 并归零，绝不闪现旧页
+    val executePageTurn: (Int, Float, Int) -> Unit = { dir, startOffset, durationMs ->
+        if (dir != 0 && !animOffset.isRunning) {
+            dragScope.launch {
+                animOffset.snapTo(startOffset)
+                val targetNorm = if (dir > 0) -1f else 1f
+                animOffset.animateTo(
+                    targetValue = targetNorm,
+                    animationSpec = tween(durationMs, easing = FastOutSlowInEasing)
+                )
+                latestPage(dir)
+                animOffset.snapTo(0f)
+                lineIndexOffset = 0
             }
         }
-    }.padding(contentPadding).clipToBounds()) {
+    }
+
+    val tapNavigation = rememberReaderTapNavigation(
+        settings.tapPageTurn,
+        interactionEnabled && expandedImage == null,
+        onToggleMenu,
+        { dir ->
+            if (animate) {
+                // 点击左右翻页：走平滑横向滑入，与滑动完全一致；且支持跨章！
+                dragAxis = 0
+                executePageTurn(dir, 0f, AppMotion.Standard)
+            } else {
+                latestPage(dir)
+            }
+        },
+        settings.resolvedTapZoneMap
+    )
+
+    BoxWithConstraints(
+        modifier.background(background).clipToBounds()
+            .readerTapFeedback(tapNavigation, foreground, settings.eInkMode || LocalEInkMode.current)
+            .readerTapNavigation(tapNavigation)
+            .pointerInput(settings.scrollPageTurn, settings.horizontalPageTurn, animate) {
+                var totalX = 0f
+                var totalY = 0f
+                var axisLocked = false
+                var lastTime = 0L
+                var flingVelocity = 0f
+
+                detectDragGestures(
+                    onDragStart = {
+                        totalX = 0f
+                        totalY = 0f
+                        axisLocked = false
+                        lastTime = 0L
+                        flingVelocity = 0f
+                        if (animOffset.isRunning) {
+                            dragScope.launch { animOffset.stop() }
+                        }
+                    },
+                    onDragCancel = {
+                        totalX = 0f
+                        totalY = 0f
+                        dragScope.launch {
+                            if (dragAxis == 0) {
+                                animOffset.animateTo(0f, tween(AppMotion.Quick, easing = FastOutSlowInEasing))
+                            } else {
+                                verticalLineOffset.animateTo(0f, tween(AppMotion.Quick, easing = FastOutSlowInEasing))
+                            }
+                        }
+                    },
+                    onDragEnd = {
+                        if (dragAxis == 0) {
+                            // ====== 横向翻页（支持滑动跨章！） ======
+                            val enabled = settings.horizontalPageTurn
+                            val extent = size.width.toFloat()
+                            val minSwipeDistance = 40f * densityValue
+                            val isFling = Math.abs(flingVelocity) >= 0.25f
+                            val isPassed = Math.abs(totalX) >= minSwipeDistance || isFling
+
+                            val direction = if (isFling && flingVelocity != 0f) {
+                                if (flingVelocity < 0) 1 else -1
+                            } else {
+                                if (totalX < 0) 1 else -1
+                            }
+
+                            // 不再用 canGoForward / canGoBack 拦截！在第一页向右滑或者最后一页向左滑直接触发跨章！
+                            if (enabled && isPassed && direction != 0) {
+                                val currentNorm = if (extent > 0) totalX / extent else 0f
+                                val remainingDistance = 1f - Math.abs(currentNorm)
+                                val duration = (AppMotion.Standard * remainingDistance).toInt().coerceIn(120, AppMotion.Standard)
+                                executePageTurn(direction, currentNorm, duration)
+                            } else {
+                                dragScope.launch {
+                                    animOffset.animateTo(0f, tween(AppMotion.Quick, easing = FastOutSlowInEasing))
+                                }
+                            }
+                        } else {
+                            // ====== 纵向：跟手滑动！拖动时下/上一页实时紧贴浮现，松手平滑滚动完成 ======
+                            val enabled = settings.scrollPageTurn
+                            val extent = size.height.toFloat()
+                            val minSwipeDistance = 40f * densityValue
+                            val isFling = Math.abs(flingVelocity) >= 0.25f
+                            val isPassed = Math.abs(totalY) >= minSwipeDistance || isFling
+
+                            val direction = if (isFling && flingVelocity != 0f) {
+                                if (flingVelocity < 0) 1 else -1
+                            } else {
+                                if (totalY < 0) 1 else -1
+                            }
+
+                            if (enabled && isPassed && direction != 0) {
+                                val targetGoal = if (direction > 0) -extent else extent
+                                dragScope.launch {
+                                    verticalLineOffset.animateTo(
+                                        targetGoal,
+                                        tween(AppMotion.Standard, easing = FastOutSlowInEasing)
+                                    )
+                                    latestPage(direction)
+                                    verticalLineOffset.snapTo(0f)
+                                }
+                            } else {
+                                dragScope.launch {
+                                    verticalLineOffset.animateTo(0f, tween(AppMotion.Quick, easing = FastOutSlowInEasing))
+                                }
+                            }
+                        }
+                        totalX = 0f
+                        totalY = 0f
+                    }
+                ) { change, amount ->
+                    change.consume()
+                    if (!axisLocked) {
+                        dragAxis = if (Math.abs(amount.x) >= Math.abs(amount.y)) 0 else 1
+                        axisLocked = true
+                    }
+
+                    val now = change.uptimeMillis
+                    val delta = if (dragAxis == 0) amount.x else amount.y
+
+                    if (lastTime != 0L && now > lastTime) {
+                        flingVelocity = flingVelocity * 0.5f + (delta / (now - lastTime).toFloat()) * 0.5f
+                    }
+                    lastTime = now
+
+                    totalX += amount.x
+                    totalY += amount.y
+
+                    if (animate) {
+                        if (dragAxis == 0) {
+                            val extent = size.width.toFloat()
+                            if (extent > 0f) {
+                                val normOffset = totalX / extent
+                                dragScope.launch { animOffset.snapTo(normOffset) }
+                            }
+                        } else {
+                            // 纵向拖动中跟随手指平移动效（amount.y 负为向上）
+                            dragScope.launch {
+                                verticalLineOffset.snapTo(verticalLineOffset.value + amount.y)
+                            }
+                        }
+                    }
+                }
+            }.padding(contentPadding).clipToBounds()
+    ) {
         val width = constraints.maxWidth.coerceAtLeast(1)
         val height = constraints.maxHeight.coerceAtLeast(1)
-        // 仅在文字样式、正文或视口变化时重新排版，翻页复用全部测量布局。
         val typography = listOf(settings.fontSize, settings.lineHeight, settings.paragraphSpacing, settings.weight, settings.indent, settings.parallel, settings.underline, settings.secondaryAlpha, font.typeface, font.loading)
         val input = EInkMeasureInput(paragraphs, typography, width, height, density.density, density.fontScale)
         val measured by produceState<EInkMeasurement?>(null, input) {
-            // 测量前合并连续的视口变化和重复偏好更新。
             if(value != null) delay(120)
             if (!font.loading && width != Constraints.Infinity && height != Constraints.Infinity) {
                 val next = withContext(Dispatchers.Default) {
@@ -278,43 +391,97 @@ internal fun measureEInkChapter(paragraphs: List<ReadingParagraph>, settings: Re
                 value = EInkMeasurement(input, next)
             }
         }
-        // produceState 在新副作用启动前会保留旧值；不得把旧测量结果
-        // 或旧状态中的页面与本轮组合的新正文配对。
         val chapter = measured?.takeIf { it.input == input && state.pages === it.chapter.pages }?.chapter
         SideEffect { if(chapter == null) state.invalidate() }
         if (chapter == null) Text("正在分页…", Modifier.align(Alignment.Center), color = foreground)
         else {
             val page = state.current
-            // 拖动方向决定要额外渲染哪一页：向右拖看上一页，向左拖看下一页。
-            val neighborIndex = when {
-                dragOffset.value > 0f -> state.pageIndex - 1
-                dragOffset.value < 0f -> state.pageIndex + 1
-                else -> -1
-            }
-            val neighbor = chapter.pages.getOrNull(neighborIndex)
+            val currentOffsetNorm = animOffset.value
+            val isHorizontal = dragAxis == 0
+
             BoxWithConstraints(Modifier.fillMaxSize().clipToBounds()) {
                 val viewportW = constraints.maxWidth.toFloat()
                 val viewportH = constraints.maxHeight.toFloat()
-                // 点击翻页的短促过渡与拖动跟手分开：拖动时页偏移完全跟随手指。
-                val shift = if(animate) pageShift.value * 12.dp.value * density.density else 0f
-                val dragging = dragOffset.value != 0f
-                if(neighbor != null) {
-                    PageBody(neighbor, chapter, settings, foreground, activeMatch, density, context,
+
+                if (isHorizontal) {
+                    // ====== 横向翻页双页咬合（整页平滑滑入） ======
+                    val targetDir = when {
+                        currentOffsetNorm < 0f -> 1
+                        currentOffsetNorm > 0f -> -1
+                        else -> 0
+                    }
+
+                    val neighborPage = if (targetDir != 0) {
+                        chapter.pages.getOrNull(state.pageIndex + targetDir)
+                    } else null
+
+                    if (neighborPage != null && targetDir != 0 && Math.abs(currentOffsetNorm) > 0.001f) {
+                        val neighborNorm = if (targetDir > 0) 1f + currentOffsetNorm else -1f + currentOffsetNorm
+                        val neighborShift = neighborNorm * viewportW
+
+                        PageBody(
+                            neighborPage, chapter, settings, foreground, activeMatch, density, context,
+                            tapNavigation, onSelect, imageModel, { expandedImage = it },
+                            Modifier.fillMaxSize().background(background).graphicsLayer {
+                                translationX = neighborShift
+                                translationY = 0f
+                            }
+                        )
+                    }
+
+                    val currentShiftX = currentOffsetNorm * viewportW
+                    PageBody(
+                        page, chapter, settings, foreground, activeMatch, density, context,
                         tapNavigation, onSelect, imageModel, { expandedImage = it },
-                        Modifier.fillMaxSize().graphicsLayer {
-                            val along = if(dragAxis == 0) viewportW else viewportH
-                            val sign = if(neighborIndex < state.pageIndex) -1f else 1f
-                            translationX = if(dragAxis == 0) sign * along + dragOffset.value else 0f
-                            translationY = if(dragAxis == 1) sign * along + dragOffset.value else 0f
-                        })
+                        Modifier.fillMaxSize().background(background).graphicsLayer {
+                            translationX = currentShiftX
+                            translationY = 0f
+                        }
+                    )
+                } else {
+                    // ====== 纵向连续卷带：手指推拉，上下页面的真实文字实时无缝浮现，原样排版不缩放不变形！ ======
+                    val vOffset = verticalLineOffset.value
+
+                    // 如果手指向上推 (vOffset < 0)，下一页紧紧咬合在屏幕底部 (viewportH + vOffset)，实时向上显露！
+                    if (vOffset < -0.5f) {
+                        val nextPage = chapter.pages.getOrNull(state.pageIndex + 1)
+                        if (nextPage != null) {
+                            PageBody(
+                                nextPage, chapter, settings, foreground, activeMatch, density, context,
+                                tapNavigation, onSelect, imageModel, { expandedImage = it },
+                                Modifier.fillMaxSize().background(background).graphicsLayer {
+                                    translationX = 0f
+                                    translationY = viewportH + vOffset
+                                }
+                            )
+                        }
+                    }
+
+                    // 如果手指向下拉 (vOffset > 0)，上一页紧紧咬合在屏幕顶部 (-viewportH + vOffset)，实时拉下来！
+                    if (vOffset > 0.5f) {
+                        val prevPage = chapter.pages.getOrNull(state.pageIndex - 1)
+                        if (prevPage != null) {
+                            PageBody(
+                                prevPage, chapter, settings, foreground, activeMatch, density, context,
+                                tapNavigation, onSelect, imageModel, { expandedImage = it },
+                                Modifier.fillMaxSize().background(background).graphicsLayer {
+                                    translationX = 0f
+                                    translationY = -viewportH + vOffset
+                                }
+                            )
+                        }
+                    }
+
+                    // 当前页跟随手指物理位移，100% 原始尺寸与字体，绝不变形
+                    PageBody(
+                        page, chapter, settings, foreground, activeMatch, density, context,
+                        tapNavigation, onSelect, imageModel, { expandedImage = it },
+                        Modifier.fillMaxSize().background(background).graphicsLayer {
+                            translationX = 0f
+                            translationY = vOffset
+                        }
+                    )
                 }
-                PageBody(page, chapter, settings, foreground, activeMatch, density, context,
-                    tapNavigation, onSelect, imageModel, { expandedImage = it },
-                    Modifier.fillMaxSize().graphicsLayer {
-                        translationX = if(dragAxis == 0) dragOffset.value else shift
-                        translationY = if(dragAxis == 1) dragOffset.value else 0f
-                        alpha = if(dragging) 1f else if(animate) 1f - abs(pageShift.value) * .12f else 1f
-                    })
             }
         }
     }
