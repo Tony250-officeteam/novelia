@@ -20,6 +20,8 @@ import android.text.style.UpdateAppearance
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
@@ -60,6 +62,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.ui.semantics.text
 import kotlinx.coroutines.launch
@@ -277,6 +280,7 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap)
     background: Color = Color.White, foreground: Color = Color.Black,
     activeMatch: ReadingTextMatch? = null,
     interactionEnabled: Boolean = true, contentPadding: PaddingValues = PaddingValues(0.dp), onNavigate: () -> Unit = {},
+    onSavePosition: () -> Unit = {}, menuOpen: Boolean = false,
 ) {
     val density = LocalDensity.current
     val context = LocalContext.current
@@ -285,6 +289,7 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap)
     val animate = !settings.eInkMode && !LocalEInkMode.current && !LocalReducedMotion.current && ValueAnimator.areAnimatorsEnabled()
     val densityValue = density.density
     val latestPage by rememberUpdatedState(onPage)
+    val latestSave by rememberUpdatedState(onSavePosition)
     val scope = rememberCoroutineScope()
 
     // 纸带像素游标（章内绝对位置，0 = 章首行顶）。
@@ -302,7 +307,8 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap)
         onToggleMenu,
         { dir -> if (animate && dir != 0) tapTurn = dir to System.nanoTime() else latestPage(dir) },
         settings.resolvedTapZoneMap,
-        onNavigate
+        onNavigate,
+        menuOpen
     )
 
     BoxWithConstraints(
@@ -356,14 +362,18 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap)
             }
             val page = state.current
 
-            // 外部定位（章节切换、书签跳转、进度拖拽）才重置游标；翻页提交不经过这里。
-            LaunchedEffect(chapter, state.pageIndex) {
-                val t = turn
-                if (t != null) return@LaunchedEffect
+            // 外部定位（章节切换、书签跳转、进度拖拽）才重置游标；
+            // 内部翻页提交不经过这里——它已自行对齐，再拉回页顶就会丢位置。
+            LaunchedEffect(chapter) {
+                viewportTop = (pageStartY(state.pageIndex) ?: 0f).coerceAtMost(maxTop)
+            }
+            // 外部跳页（进度条/书签/卷键）会改页码且游标不在该页范围：拉回该页页顶。
+            // 内部提交用的基准与这里一致（都是视口 40% 行），不会误伤刚翻到的位置。
+            LaunchedEffect(state.pageIndex) {
+                if (turn != null) return@LaunchedEffect
                 val top = pageStartY(state.pageIndex) ?: return@LaunchedEffect
-                // 游标已落在本页范围内（纵向滚动的就地提交），不拉回页顶。
                 val row = metrics.rowAt(viewportTop + viewportH * 0.4f)
-                if (pageAtRow(row) != state.pageIndex) { viewportTop = top.coerceAtMost(maxTop) }
+                if (pageAtRow(row) != state.pageIndex) viewportTop = top.coerceAtMost(maxTop)
             }
 
             fun screenRows(top: Float): Pair<Int, Int> {
@@ -421,16 +431,25 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap)
                             if (f >= 1f) done = true
                         }
                     }
-                    turn = null
-                    turnShift = 0f
+                    // 收尾必须原子：先对齐游标再清快照。
+                    // 若先清 turn 再改 viewportTop，中间会有一帧用旧游标渲染纸带，
+                    // 就是「翻页完成后再闪一下旧页」的根因。
                     if (commit) {
                         val g = goalTopFor(dir)
                         if (g != null) {
-                            viewportTop = g
-                            // 页码按行位置对齐（翻页以行为单位，索引只是标签）
-                            state.seek(pageAtRow(metrics.rowAt(g + 1f)))
+                            Snapshot.withMutableSnapshot {
+                                viewportTop = g
+                                state.seek(pageAtRow(metrics.rowAt(g + viewportH * 0.4f)))
+                                turn = null
+                                turnShift = 0f
+                            }
+                            latestSave()
+                        } else {
+                            Snapshot.withMutableSnapshot { turn = null; turnShift = 0f }
+                            latestPage(dir)   // 章界：外层换章后由定位 effect 重置视图
                         }
-                        else latestPage(dir)   // 章界：外层换章后由定位 effect 重置视图
+                    } else {
+                        Snapshot.withMutableSnapshot { turn = null; turnShift = 0f }
                     }
                 }
             }
@@ -442,7 +461,14 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap)
                 if (turn != null || turnJob?.isActive == true) return@LaunchedEffect
                 val g = goalTopFor(req.first)
                 if (g == null) { latestPage(req.first); return@LaunchedEffect }
-                if (!animate) { viewportTop = g; state.move(req.first); return@LaunchedEffect }
+                if (!animate) {
+                    Snapshot.withMutableSnapshot {
+                        viewportTop = g
+                        state.seek(pageAtRow(metrics.rowAt(g + viewportH * 0.4f)))
+                    }
+                    latestSave()
+                    return@LaunchedEffect
+                }
                 turn = PageTurn(req.first, bake(viewportTop), bake(g))
                 runTurn(req.first, 0f, true, AppMotion.Standard)
             }
@@ -474,13 +500,15 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap)
                             onDragEnd = {
                                 val t = turn
                                 if (axis == 0) {
+                                    // 位移 56dp 或明显甩动（0.45px/ms≈450px/s）才翻页；
+                                    // 原来的 40dp + 0.2px/ms 对轻点太灵敏，会误触发。
+                                    val passed = abs(totalX) >= 56f * densityValue || abs(velX) >= 0.45f
                                     if (t != null) {
-                                        val passed = abs(totalX) >= 40f * densityValue || abs(velX) >= 0.2f
                                         val commit = passed && (if (totalX < 0f) t.dir > 0 else t.dir < 0)
                                         val moved = abs(turnShift) / viewportW
                                         runTurn(t.dir, turnShift, commit,
                                             if (commit) (AppMotion.Standard * (1f - moved)).toInt().coerceIn(80, AppMotion.Standard) else AppMotion.Quick)
-                                    } else if (abs(totalX) >= 40f * densityValue || abs(velX) >= 0.2f) {
+                                    } else if (passed) {
                                         latestPage(if (totalX < 0f) 1 else -1)   // 章界滑动：跨章
                                     }
                                 } else if (axis == 1 && locked && settings.scrollPageTurn) {
@@ -503,13 +531,19 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap)
                                                 }
                                             }
                                         }
-                                        // 吸附到最近行边界：滑动单位是行，不是任意像素
+                                        // 落定：吸附行边界、就地页对齐，并把锚点交给外层持久化。
+                                        // 只传 0（保存当前位），绝不能再传 ±1——外层 page(dir)
+                                        // 会按页表 move，把刚滚出的行位置拉回页顶（翻页效果丢失）。
                                         val r = metrics.rowAt(viewportTop)
                                         val y0 = metrics.yTop(r)
                                         val y1 = metrics.yTop(r + 1)
                                         val pos = (if (viewportTop - y0 <= (y1 - y0) / 2f) y0 else y1).coerceIn(0f, maxTop)
                                         viewportTop = pos
-                                        state.seek(pageAtRow(metrics.rowAt(pos + viewportH * 0.4f)))
+                                        val pageIdx = pageAtRow(metrics.rowAt(pos + viewportH * 0.4f))
+                                        if (pageIdx != state.pageIndex) state.seek(pageIdx)
+                                        // 只保存，不经过外层 page(dir) 的页表 move——
+                                        // 那会把锚点重置回页顶，等于丢掉刚滚出来的行位置。
+                                        latestSave()
                                     }
                                 }
                             }
@@ -553,10 +587,26 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap)
                         }
                     }
                     .pointerInput(chapter) {
-                        detectTapGestures(onLongPress = { pos ->
-                            val row = metrics.rowAt((viewportTop + pos.y).coerceAtMost(maxTop))
-                            lines.getOrNull(row)?.let { onSelect(chapter.paragraphs[it.paragraph]) }
-                        })
+                        // 长按选段：必须只观察、不消费事件。
+                        // 用 detectTapGestures 会消费 up，外层 readerTapNavigation 的
+                        // combinedClickable 就收不到点击 → 点击翻页与菜单开关全部失效。
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val slop = viewConfiguration.touchSlop
+                            val holdMs = viewConfiguration.longPressTimeoutMillis
+                            var fired = false
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                if (!change.pressed) break
+                                if ((change.position - down.position).getDistance() > slop) break
+                                if (!fired && change.uptimeMillis - down.uptimeMillis >= holdMs) {
+                                    fired = true
+                                    val row = metrics.rowAt((viewportTop + change.position.y).coerceAtMost(maxTop))
+                                    lines.getOrNull(row)?.let { onSelect(chapter.paragraphs[it.paragraph]) }
+                                }
+                            }
+                        }
                     }
             ) {
                 val t = turn

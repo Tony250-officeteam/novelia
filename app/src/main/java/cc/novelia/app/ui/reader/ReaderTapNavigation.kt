@@ -41,6 +41,7 @@ import kotlinx.coroutines.launch
 internal class ReaderTapNavigation(private val scope: CoroutineScope) {
     private var tapPageTurn = false
     private var pageTurningEnabled = true
+    private var menuOpen = false
     private var onToggleMenu: () -> Unit = {}
     private var onPage: (Int) -> Unit = {}
     private var onNavigate: () -> Unit = {}
@@ -69,13 +70,15 @@ internal class ReaderTapNavigation(private val scope: CoroutineScope) {
 
     fun configure(tapPageTurn: Boolean, pageTurningEnabled: Boolean, onToggleMenu: () -> Unit, onPage: (Int) -> Unit,
         zoneMap: ReaderTapZoneMap = ReaderTapZoneMap.Default, onNavigate: () -> Unit = {},
-        doubleTapTimeout: Long = 300L, doubleTapMinTime: Long = 40L, doubleTapSlop: Float = 48f) {
+        doubleTapTimeout: Long = 300L, doubleTapMinTime: Long = 40L, doubleTapSlop: Float = 48f,
+        menuOpen: Boolean = false) {
         if(this.tapPageTurn != tapPageTurn || this.pageTurningEnabled != pageTurningEnabled || this.zoneMap != zoneMap) {
             cancel()
             feedback = null
         }
         this.tapPageTurn = tapPageTurn
         this.pageTurningEnabled = pageTurningEnabled
+        this.menuOpen = menuOpen
         this.onToggleMenu = onToggleMenu
         this.onPage = onPage
         this.zoneMap = zoneMap
@@ -124,6 +127,14 @@ internal class ReaderTapNavigation(private val scope: CoroutineScope) {
         if(!tracking) { clearPending(); onToggleMenu(); return }
         if(!valid || !tap || !released) return
         valid = false
+        // 工具栏已展开时，点正文任何位置都先收起工具栏。
+        // 分区动作可能是 None（尤其画面中央），若只走 dispatch 会「点了没反应」。
+        if(menuOpen) {
+            clearPending()
+            feedback = null
+            onToggleMenu()
+            return
+        }
         // 搜索等状态暂停翻页时，仍能通过正文收起或展开工具栏。
         if(!pageTurningEnabled || !tapPageTurn || width <= 0 || height <= 0) {
             clearPending()
@@ -163,14 +174,14 @@ internal data class ReaderTapFeedback(val id: Long, val bounds: List<ReaderTapRe
 
 @Composable internal fun rememberReaderTapNavigation(
     tapPageTurn: Boolean, pageTurningEnabled: Boolean = true, onToggleMenu: () -> Unit, onPage: (Int) -> Unit,
-    zoneMap: ReaderTapZoneMap = ReaderTapZoneMap.Default, onNavigate: () -> Unit = {}
+    zoneMap: ReaderTapZoneMap = ReaderTapZoneMap.Default, onNavigate: () -> Unit = {}, menuOpen: Boolean = false
 ): ReaderTapNavigation {
     val scope = rememberCoroutineScope()
     val navigation = remember(scope) { ReaderTapNavigation(scope) }
     val config = LocalViewConfiguration.current
     val doubleTapSlop = with(LocalDensity.current) { 48.dp.toPx() }
     SideEffect { navigation.configure(tapPageTurn, pageTurningEnabled, onToggleMenu, onPage, zoneMap, onNavigate,
-        config.doubleTapTimeoutMillis, config.doubleTapMinTimeMillis, doubleTapSlop) }
+        config.doubleTapTimeoutMillis, config.doubleTapMinTimeMillis, doubleTapSlop, menuOpen) }
     DisposableEffect(navigation) { onDispose { navigation.dispose() } }
     return navigation
 }

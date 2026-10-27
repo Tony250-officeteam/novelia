@@ -598,7 +598,7 @@ import kotlinx.serialization.encodeToString
             // 不得给正文布局增加内边距或尺寸约束。
             val bodyInputEnabled = volumeKeysActive && !leaving && !chapterLoad.loading && !positionState.restoringAnchor && positionState.initialAnchorRestored && seekTarget == null
             val openToc: () -> Unit = { if(wide) { tocQuery = ""; tocLocateRequest++ } else toc = true }
-            val tapNavigation = rememberReaderTapNavigation(settings.tapPageTurn, bodyInputEnabled, { menu = !menu }, { page(it) }, settings.resolvedTapZoneMap, openToc)
+            val tapNavigation = rememberReaderTapNavigation(settings.tapPageTurn, bodyInputEnabled, { menu = !menu }, { page(it) }, settings.resolvedTapZoneMap, openToc, menu)
             if(settings.staticPagination) EInkPage(paragraphs, settings, eInk,
                 Modifier.testTag("reader-page").align(Alignment.TopCenter).fillMaxHeight().windowInsetsPadding(readingInsets)
                     .padding(bottom = readingStatusBarHeight)
@@ -606,7 +606,8 @@ import kotlinx.serialization.encodeToString
                 imageModel = { it.imageUrl ?: it.localImageId?.takeIf { ref.isLocal }?.let { id -> c.store.documentImage(ref.id, id) } },
                 onToggleMenu = { menu = !menu }, onSelect = { selected = it }, onPage = { page(it) },
                 background = background, foreground = foreground, activeMatch = activeMatch,
-                interactionEnabled = bodyInputEnabled, contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp), onNavigate = openToc)
+                interactionEnabled = bodyInputEnabled, contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp), onNavigate = openToc,
+                onSavePosition = { savePosition() }, menuOpen = menu)
             else LazyColumn(state = scroll, overscrollEffect = null, modifier = Modifier.testTag("reader-scroll").align(Alignment.TopCenter).fillMaxHeight()
                 .windowInsetsPadding(readingInsets).padding(bottom = readingStatusBarHeight).widthIn(max = settings.width.dp).fillMaxWidth()
                 .onSizeChanged { size ->
