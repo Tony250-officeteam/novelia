@@ -26,7 +26,7 @@ AndroidX / Compose、Kotlin、kotlinx.coroutines、kotlinx.serialization、OkHtt
 
 - **原始文件**：`org/geometerplus/fbreader/fbreader/TapZoneMap.java`、`org/geometerplus/fbreader/fbreader/options/PageTurningOptions.java`，以及 `assets/default/tapzones/` 下 `right_to_left.xml`、`left_to_right.xml`、`up.xml`、`down.xml` 四套内置分区布局。
 - **原始许可**：GNU General Public License version 2 or later（GPL-2.0-or-later）。本项目依据其 "or any later version" 条款按 GPL-3.0-only 使用，原始版权声明保留在改编文件头部。
-- **修改内容**：改写为 Kotlin；去掉 `ZLStringOption`、`ZLFile`、SAX 解析依赖，分区表由 XML 资源改为不可变常量；点击动作由字符串改为密封类型 `ReaderTapAction`；接入本项目 `ReaderSettings` 持久化。坐标归一化算法（`columns * x / width` 后夹取格子索引）与 FBReader 保持一致。
+- **修改内容**：改写为 Kotlin；去掉 `ZLStringOption`、`ZLFile`、SAX 解析依赖，分区表由 XML 资源改为不可变配置；点击动作由字符串改为枚举 `ReaderTapAction`；接入本项目 `ReaderSettings` 持久化。等分网格沿用 FBReader 的归一化命中规则，并扩展为可拖动的行列边界、单击／双击独立判定和相同动作邻格合并。正文覆盖编辑层、教程和点击反馈共享区域几何信息。
 
 GPL-2.0 完整条款见 [licenses/GPL-2.0.txt](licenses/GPL-2.0.txt)。
 

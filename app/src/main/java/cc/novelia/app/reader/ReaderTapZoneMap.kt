@@ -8,7 +8,7 @@
  *  - 改写为 Kotlin，去掉 ZLStringOption / ZLFile / SAX 解析依赖
  *  - 只保留一套默认分区，不提供预设列表；用户逐格自由配置
  *  - 动作集合扩展为翻页、目录、工具栏、无操作，覆盖横向与纵向翻页
- *  - 坐标归一化保留 FBReader 原始算法，见 getActionByCoordinates
+ *  - 坐标归一化扩展为可调行列边界，相同动作的相邻格子自动合并
  */
 package cc.novelia.app.reader
 
@@ -29,7 +29,7 @@ enum class ReaderTapAction {
     /** 显示或收起工具栏 */
     Menu,
 
-    /** 不响应，事件继续向下传递 */
+    /** 不执行阅读器点击动作；仍保留滑动、长按和控件操作。 */
     None;
 
     val isPageTurn: Boolean get() = this == PreviousPage || this == NextPage
@@ -45,7 +45,7 @@ enum class ReaderTapAction {
 
 /**
  * 一次点击的判定类型，对应 FBReader 的 TapZoneMap.Tap。
- *  - SingleTap：不区分单双击时使用的合并查询（先查单击表，再查双击表）
+ *  - SingleTap / SingleNotDoubleTap：单击，绝不回退到双击动作
  *  - SingleNotDoubleTap：确认不是双击的单击
  *  - DoubleTap：双击
  */
@@ -70,25 +70,80 @@ data class ReaderTapZoneMap(
     val singleActions: Map<Int, ReaderTapAction> = emptyMap(),
     /** 每格的双击动作，键同上。 */
     val doubleActions: Map<Int, ReaderTapAction> = emptyMap(),
+    /** 内部分界线在视口中的比例；空列表表示等分，兼容旧方案。 */
+    val columnStops: List<Float> = emptyList(),
+    val rowStops: List<Float> = emptyList(),
 ) {
     /** 格子总数。 */
     val cellCount: Int get() = columns * rows
+    val columnEdges: List<Float> get() = edges(columnStops, columns)
+    val rowEdges: List<Float> get() = edges(rowStops, rows)
+
+    fun cellAt(x: Float, y: Float, width: Int, height: Int): Int? {
+        if (width <= 0 || height <= 0 || !x.isFinite() || !y.isFinite()) return null
+        val column = columnEdges.drop(1).indexOfFirst { x / width < it }.takeIf { it >= 0 } ?: columns - 1
+        val row = rowEdges.drop(1).indexOfFirst { y / height < it }.takeIf { it >= 0 } ?: rows - 1
+        return row * columns + column
+    }
+
+    fun cellBounds(cell: Int): ReaderTapRect {
+        val column = cell % columns
+        val row = cell / columns
+        return ReaderTapRect(columnEdges[column], rowEdges[row], columnEdges[column + 1], rowEdges[row + 1])
+    }
+
+    fun withColumnBoundary(index: Int, fraction: Float): ReaderTapZoneMap =
+        copy(columnStops = movedBoundary(columnEdges, index, fraction))
+
+    fun withRowBoundary(index: Int, fraction: Float): ReaderTapZoneMap =
+        copy(rowStops = movedBoundary(rowEdges, index, fraction))
+
+    /** 保留底层格子；相邻且两种动作一致时组成一个区域，不跨过不同动作或对角线。 */
+    fun mergedRegions(): List<ReaderTapRegion> {
+        val remaining = (0 until cellCount).toMutableSet()
+        return buildList {
+            while (remaining.isNotEmpty()) {
+                val first = remaining.first()
+                val single = singleActions[first] ?: ReaderTapAction.None
+                val double = doubleActions[first] ?: ReaderTapAction.None
+                val cells = mutableListOf<Int>()
+                val pending = ArrayDeque<Int>()
+                pending.add(first)
+                remaining.remove(first)
+                while (pending.isNotEmpty()) {
+                    val cell = pending.removeFirst()
+                    cells += cell
+                    val column = cell % columns
+                    val row = cell / columns
+                    val neighbors = listOfNotNull(
+                        (cell - 1).takeIf { column > 0 }, (cell + 1).takeIf { column + 1 < columns },
+                        (cell - columns).takeIf { row > 0 }, (cell + columns).takeIf { row + 1 < rows })
+                    neighbors.filter { it in remaining && (singleActions[it] ?: ReaderTapAction.None) == single &&
+                        (doubleActions[it] ?: ReaderTapAction.None) == double }.forEach {
+                        remaining.remove(it); pending.add(it)
+                    }
+                }
+                add(ReaderTapRegion(cells.sorted(), cells.sorted().map(::cellBounds), single, double))
+            }
+        }
+    }
+
+    fun regionFor(cell: Int): ReaderTapRegion = mergedRegions().first { cell in it.cells }
+
+    fun withRegionAction(cells: List<Int>, double: Boolean, action: ReaderTapAction): ReaderTapZoneMap =
+        cells.fold(this) { map, cell -> map.withAction(cell % columns, cell / columns, double, action) }
 
     /**
      * 把屏幕坐标换算成动作。
      *
-     * 归一化算法与 FBReader 一致：先把坐标夹到 [0, width) / [0, height)，
-     * 再按 `columns * x / width` 映射到格子索引，因此最右/最下边界不会越界。
+     * 按当前行列边界查找归一化坐标，越界坐标夹到首尾格子。
+     * 等分布局与原始 FBReader 算法一致；调整边界后按保存的比例命中。
      *
      * @return 该位置没有配置动作时返回 [ReaderTapAction.None]
      */
     fun getActionByCoordinates(x: Int, y: Int, width: Int, height: Int, kind: ReaderTapKind): ReaderTapAction {
-        if (width <= 0 || height <= 0) return ReaderTapAction.None
-        val clampedX = x.coerceIn(0, width - 1)
-        val clampedY = y.coerceIn(0, height - 1)
-        val column = columns * clampedX / width
-        val row = rows * clampedY / height
-        return getActionByZone(column, row, kind)
+        val cell = cellAt(x.toFloat(), y.toFloat(), width, height) ?: return ReaderTapAction.None
+        return getActionByZone(cell % columns, cell / columns, kind)
     }
 
     /** 按格子索引查动作，越界或未配置时返回 [ReaderTapAction.None]。 */
@@ -98,8 +153,7 @@ data class ReaderTapZoneMap(
         val single = singleActions[key] ?: ReaderTapAction.None
         val double = doubleActions[key] ?: ReaderTapAction.None
         return when (kind) {
-            ReaderTapKind.SingleTap -> if (single != ReaderTapAction.None) single else double
-            ReaderTapKind.SingleNotDoubleTap -> single
+            ReaderTapKind.SingleTap, ReaderTapKind.SingleNotDoubleTap -> single
             ReaderTapKind.DoubleTap -> double
         }
     }
@@ -131,14 +185,14 @@ data class ReaderTapZoneMap(
         val cells = (0 until rows).flatMap { row -> (0 until columns).map { column -> singleAt(column, row) } }
         val forward = cells.count { it == ReaderTapAction.NextPage }
         val backward = cells.count { it == ReaderTapAction.PreviousPage }
-        val menu = cells.count { it == ReaderTapAction.None }
+        val menu = cells.count { it == ReaderTapAction.Menu }
         val direction = when {
             forward > 0 && backward > 0 -> "同时包含向前与向后翻页"
-            forward > 0 -> "只向后翻页，回退请用滑动"
+            forward > 0 -> "只翻下一页，回退请用滑动"
             backward > 0 -> "只向前翻页"
             else -> "没有配置翻页区域"
         }
-        return "$direction；$menu 个格子留给工具栏。点按任意格子可单独调整。"
+        return "$direction；$menu 个格子显示工具栏，合并后共 ${mergedRegions().size} 个区域。"
     }
 
     companion object {
@@ -149,6 +203,23 @@ data class ReaderTapZoneMap(
         /** FBReader 允许的最小/最大网格密度。 */
         const val MIN_GRID = 2
         const val MAX_GRID = 5
+        const val MIN_SPAN = .08f
+
+        private fun validStops(stops: List<Float>, count: Int): Boolean = stops.isEmpty() ||
+            (stops.size == count - 1 && (listOf(0f) + stops + 1f).zipWithNext().all { (a, b) ->
+                a.isFinite() && b.isFinite() && b - a >= MIN_SPAN - .00001f
+            })
+
+        private fun edges(stops: List<Float>, count: Int): List<Float> =
+            if (stops.isNotEmpty() && validStops(stops, count)) listOf(0f) + stops + 1f
+            else (0..count).map { it.toFloat() / count }
+
+        private fun movedBoundary(edges: List<Float>, index: Int, fraction: Float): List<Float> {
+            if (index !in 1 until edges.lastIndex || !fraction.isFinite()) return edges.drop(1).dropLast(1)
+            return edges.toMutableList().apply {
+                this[index] = fraction.coerceIn(edges[index - 1] + MIN_SPAN, edges[index + 1] - MIN_SPAN)
+            }.drop(1).dropLast(1)
+        }
 
         private fun map(
             single: Map<Pair<Int, Int>, ReaderTapAction> = emptyMap(),
@@ -177,7 +248,7 @@ data class ReaderTapZoneMap(
                 // 右列：下一页
                 (2 to 0) to ReaderTapAction.NextPage, (2 to 1) to ReaderTapAction.NextPage, (2 to 2) to ReaderTapAction.NextPage,
                 // 中列上下：纵向翻页，正中：工具栏
-                (1 to 0) to ReaderTapAction.PreviousPage, (1 to 1) to ReaderTapAction.None, (1 to 2) to ReaderTapAction.NextPage,
+                (1 to 0) to ReaderTapAction.PreviousPage, (1 to 1) to ReaderTapAction.Menu, (1 to 2) to ReaderTapAction.NextPage,
             ),
             double = mapOf(
                 (0 to 0) to ReaderTapAction.Navigate, (1 to 0) to ReaderTapAction.Navigate, (2 to 0) to ReaderTapAction.Navigate,
@@ -188,22 +259,22 @@ data class ReaderTapZoneMap(
         /**
          * 把方案编码成一行字符串，用于随阅读设置持久化。
          *
-         * 格式：`名称|列数|行数|单击表|双击表`，表内以 `格子索引:动作名` 逗号分隔。
+         * 格式：`名称|列数|行数|单击表|双击表|列分界|行分界`，兼容旧五段格式。
          * 解析失败时回退到 [Default]，保证旧版本数据或损坏值不会让阅读器不可用。
          */
         fun encode(map: ReaderTapZoneMap): String {
             fun table(values: Map<Int, ReaderTapAction>) =
                 values.entries.sortedBy { it.key }.joinToString(",") { "${it.key}:${it.value.name}" }
             return listOf(map.name, map.columns.toString(), map.rows.toString(),
-                table(map.singleActions), table(map.doubleActions)).joinToString("|")
+                table(map.singleActions), table(map.doubleActions), map.columnStops.joinToString(","), map.rowStops.joinToString(",")).joinToString("|")
         }
 
         /** 解析 [encode] 生成的字符串；任何异常都回退到 [Default]。 */
         fun decode(value: String): ReaderTapZoneMap {
-            if (value.isBlank()) return Default
+            if (value.isBlank() || value.length > 2_048) return Default
             return try {
                 val parts = value.split('|')
-                if (parts.size != 5) return Default
+                if (parts.size != 5 && parts.size != 7) return Default
                 val columns = parts[1].toIntOrNull()?.takeIf { it in MIN_GRID..MAX_GRID } ?: return Default
                 val rows = parts[2].toIntOrNull()?.takeIf { it in MIN_GRID..MAX_GRID } ?: return Default
                 fun table(raw: String): Map<Int, ReaderTapAction>? {
@@ -220,7 +291,16 @@ data class ReaderTapZoneMap(
                 }
                 val single = table(parts[3]) ?: return Default
                 val double = table(parts[4]) ?: return Default
-                ReaderTapZoneMap(parts[0].ifBlank { DEFAULT_NAME }, columns, rows, single, double)
+                fun stops(raw: String, count: Int): List<Float>? {
+                    if (raw.isBlank()) return emptyList()
+                    val values = raw.split(',').map { it.toFloatOrNull() ?: return null }
+                    return values.takeIf { validStops(it, count) }
+                }
+                val x = stops(parts.getOrElse(5) { "" }, columns) ?: return Default
+                val y = stops(parts.getOrElse(6) { "" }, rows) ?: return Default
+                val result = ReaderTapZoneMap(parts[0].ifBlank { DEFAULT_NAME }, columns, rows, single, double, x, y)
+                // 旧默认方案把中央工具栏写作 None；仅迁移完整的旧默认方案，不改用户的禁用区域。
+                if (parts.size == 5 && result == Default.withAction(1, 1, false, ReaderTapAction.None)) Default else result
             } catch (_: RuntimeException) {
                 Default
             }
@@ -230,3 +310,7 @@ data class ReaderTapZoneMap(
         fun byName(name: String): ReaderTapZoneMap = Default
     }
 }
+
+/** 视口归一化矩形；配置、教程、命中测试与点击反馈共享相同边界。 */
+data class ReaderTapRect(val left: Float, val top: Float, val right: Float, val bottom: Float)
+data class ReaderTapRegion(val cells: List<Int>, val bounds: List<ReaderTapRect>, val single: ReaderTapAction, val double: ReaderTapAction)

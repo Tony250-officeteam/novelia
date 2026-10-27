@@ -20,6 +20,7 @@ import cc.novelia.app.data.model.LocalDocument
 import cc.novelia.app.data.model.Position
 import cc.novelia.app.data.model.ReaderSettings
 import cc.novelia.app.data.storage.LocalStore
+import cc.novelia.app.reader.ReaderTapAction
 import java.io.File
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
@@ -190,9 +191,9 @@ class ReaderToolbarOverlayTest {
         compose.onNodeWithText("关闭面板").performClick()
         val guide = compose.onNodeWithTag("reader-tap-tutorial").assertIsDisplayed()
         val before = app.store.state.value.positions.getValue(ref.key)
-        compose.onNodeWithTag("reader-tap-guide-previous").assertIsDisplayed()
-        compose.onNodeWithTag("reader-tap-guide-menu").assertIsDisplayed()
-        compose.onNodeWithTag("reader-tap-guide-next").assertIsDisplayed()
+        compose.onNodeWithTag("tap-zone-region-3").assertIsDisplayed().assertTextContains("上一屏")
+        compose.onNodeWithTag("tap-zone-region-4").assertIsDisplayed().assertTextContains("工具栏")
+        compose.onNodeWithTag("tap-zone-region-5").assertIsDisplayed().assertTextContains("下一屏")
         screenshot("reader-tap-tutorial-scroll")
         guide.performTouchInput { click(Offset(width * .85f, centerY)); swipeUp() }
         assertAnchorEquals(before, app.store.state.value.positions.getValue(ref.key))
@@ -877,6 +878,51 @@ class ReaderToolbarOverlayTest {
             compose.onNodeWithTag("reader-toolbar-transparency").performScrollTo()
                 .assertRangeInfoEquals(androidx.compose.ui.semantics.ProgressBarRangeInfo(.25f, 0f..1f))
             compose.onNodeWithText("关闭面板").performClick()
+        }
+
+    @Test fun tapZoneOverlayPersistsPerBookAndTutorialUsesSavedGeometryWithoutMovingText() =
+        withReader(ReaderSettings(paginationMode = "auto", tapPageTurn = true, showPageButtons = true)) { app, ref ->
+            compose.onNodeWithText("下一页").performClick()
+            compose.waitUntil(10_000) { (app.store.state.value.positions[ref.key]?.textOffset ?: 0) > 0 }
+            val before = snapshot("reader-page")
+            val anchor = app.store.state.value.positions.getValue(ref.key)
+            val counter = pageCounter()
+            val defaultMap = app.store.state.value.reader.tapZoneMap
+            compose.onNodeWithContentDescription("阅读设置").performClick()
+            compose.onNodeWithText("仅应用于这本书").performClick()
+            compose.onNodeWithText("翻页").performClick()
+            compose.onNodeWithTag("tap-zone-open-editor").performScrollTo().performClick()
+            compose.onNodeWithTag("tap-zone-editor").assertIsDisplayed()
+            compose.onNodeWithTag("tap-zone-column-1").performSemanticsAction(SemanticsActions.SetProgress) { it(.2f) }
+            compose.onNodeWithTag("tap-zone-region-4").performClick()
+            compose.onNodeWithTag("tap-zone-option-Navigate").performClick()
+            screenshot("pr2-zones-reader-overlay")
+            compose.onNodeWithTag("tap-zone-save").performClick()
+            assertEquals(before, snapshot("reader-page"))
+            assertEquals(counter, pageCounter())
+            assertAnchorEquals(anchor, app.store.state.value.positions.getValue(ref.key))
+            runBlocking { app.store.flush() }
+            val persisted = LocalStore(compose.activity).state.value
+            assertEquals(defaultMap, persisted.reader.tapZoneMap)
+            val map = persisted.bookSettings.getValue(ref.key).resolvedTapZoneMap
+            assertEquals(.2f, map.columnEdges[1], .001f)
+            assertEquals(ReaderTapAction.Navigate, map.singleAt(1, 1))
+            compose.onNodeWithContentDescription("阅读设置").performClick()
+            compose.onNodeWithText("翻页").performClick()
+            compose.onNodeWithText("查看点击分区教程").performScrollTo().performClick()
+            compose.onNodeWithTag("tap-zone-region-4").assertTextContains("目录")
+            screenshot("pr2-zones-reader-tutorial")
+            compose.onNodeWithText("开始阅读").performClick()
+            assertEquals(before, snapshot("reader-page"))
+            compose.onNodeWithTag("reader-page").performTouchInput { click(center) }
+            compose.onNodeWithTag("reader-toc-pane").assertIsDisplayed()
+            compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
+            compose.onNodeWithContentDescription("阅读设置").performClick()
+            compose.onNodeWithText("翻页").performClick()
+            compose.onNodeWithTag("tap-zone-open-editor").performScrollTo().performClick()
+            compose.onNodeWithTag("tap-zone-column-1").performSemanticsAction(SemanticsActions.SetProgress) { it(.3f) }
+            compose.onNodeWithText("取消").performClick()
+            assertEquals(map, app.store.state.value.bookSettings.getValue(ref.key).resolvedTapZoneMap)
         }
 
     private fun withReader(settings: ReaderSettings, chapters: List<LocalChapter> = listOf(

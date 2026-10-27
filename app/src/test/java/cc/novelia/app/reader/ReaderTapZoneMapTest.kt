@@ -35,7 +35,7 @@ class ReaderTapZoneMapTest {
         val map = ReaderTapZoneMap.Default
         assertEquals(ReaderTapAction.PreviousPage, actionAt(map, 1, 0))
         assertEquals(ReaderTapAction.NextPage, actionAt(map, 1, 2))
-        assertEquals(ReaderTapAction.None, actionAt(map, 1, 1))
+        assertEquals(ReaderTapAction.Menu, actionAt(map, 1, 1))
     }
 
     @Test fun defaultCoversBothDirectionsInBothAxes() {
@@ -59,7 +59,7 @@ class ReaderTapZoneMapTest {
         assertEquals(ReaderTapAction.NextPage, edited.singleAt(1, 1))
         assertEquals(ReaderTapAction.PreviousPage, edited.singleAt(0, 1))
         assertEquals(ReaderTapAction.NextPage, edited.singleAt(2, 1))
-        assertEquals(ReaderTapAction.None, map.singleAt(1, 1))
+        assertEquals(ReaderTapAction.Menu, map.singleAt(1, 1))
     }
 
     @Test fun bothSidesCanBeConfiguredToTurnForward() {
@@ -83,12 +83,12 @@ class ReaderTapZoneMapTest {
         assertEquals(ReaderTapAction.Navigate, actionAt(map, 0, 0, ReaderTapKind.DoubleTap))
     }
 
-    @Test fun singleTapFallsBackToDoubleTapWhenOnlyDoubleIsConfigured() {
+    @Test fun singleTapNeverFallsBackToDoubleTapWhenOnlyDoubleIsConfigured() {
         val map = ReaderTapZoneMap.Default.withAction(1, 1, double = false, ReaderTapAction.None)
             .withAction(1, 1, double = true, ReaderTapAction.Menu)
         assertEquals(ReaderTapAction.None, actionAt(map, 1, 1, ReaderTapKind.SingleNotDoubleTap))
         assertEquals(ReaderTapAction.Menu, actionAt(map, 1, 1, ReaderTapKind.DoubleTap))
-        assertEquals(ReaderTapAction.Menu, actionAt(map, 1, 1, ReaderTapKind.SingleTap))
+        assertEquals(ReaderTapAction.None, actionAt(map, 1, 1, ReaderTapKind.SingleTap))
     }
 
     @Test fun coordinatesAreClampedToTheLastCell() {
@@ -132,6 +132,47 @@ class ReaderTapZoneMapTest {
     @Test fun byNameAlwaysReturnsDefault() {
         assertEquals(ReaderTapZoneMap.Default, ReaderTapZoneMap.byName("任何名称"))
         assertEquals(ReaderTapZoneMap.Default, ReaderTapZoneMap.byName(""))
+    }
+
+    @Test fun resizedBoundariesDriveHitTestingAndPersist() {
+        val map = ReaderTapZoneMap.Default.withColumnBoundary(1, .2f).withRowBoundary(2, .8f)
+        assertEquals(4, map.cellAt(250f, 1300f, width, height))
+        assertEquals(ReaderTapAction.Menu, map.getActionByCoordinates(250, 1300, width, height, ReaderTapKind.SingleTap))
+        assertEquals(map, ReaderTapZoneMap.decode(ReaderTapZoneMap.encode(map)))
+    }
+
+    @Test fun boundariesCannotCrossOrShrinkCellsToZero() {
+        val map = ReaderTapZoneMap.Default.withColumnBoundary(1, 5f).withRowBoundary(2, -5f)
+        assertTrue(map.columnEdges.zipWithNext().all { (a, b) -> b - a >= ReaderTapZoneMap.MIN_SPAN - .00001f })
+        assertTrue(map.rowEdges.zipWithNext().all { (a, b) -> b - a >= ReaderTapZoneMap.MIN_SPAN - .00001f })
+        assertEquals(map, map.withColumnBoundary(1, Float.NaN))
+    }
+
+    @Test fun onlyOrthogonallyAdjacentMatchingActionPairsMerge() {
+        val map = ReaderTapZoneMap.Default
+        assertEquals(listOf(0, 1), map.regionFor(0).cells)
+        assertEquals(listOf(3), map.regionFor(3).cells) // 单击相同，双击不同。
+        val diagonal = ReaderTapZoneMap().withAction(0, 0, false, ReaderTapAction.Menu)
+            .withAction(1, 1, false, ReaderTapAction.Menu)
+        assertEquals(listOf(0), diagonal.regionFor(0).cells)
+        val joined = diagonal.withAction(1, 0, false, ReaderTapAction.Menu)
+        assertEquals(listOf(0, 1, 4), joined.regionFor(0).cells)
+        assertEquals(9, joined.mergedRegions().sumOf { it.cells.size })
+    }
+
+    @Test fun editingOneCellCanSplitAMergedRegion() {
+        val map = ReaderTapZoneMap.Default.withAction(1, 0, false, ReaderTapAction.None)
+        assertEquals(listOf(0), map.regionFor(0).cells)
+        assertEquals(listOf(1), map.regionFor(1).cells)
+        assertEquals(ReaderTapAction.None, map.singleAt(1, 0))
+    }
+
+    @Test fun legacyDefaultAndMalformedBoundariesHaveSafeFallbacks() {
+        val legacy = ReaderTapZoneMap.encode(ReaderTapZoneMap.Default.withAction(1, 1, false, ReaderTapAction.None)).split('|').take(5).joinToString("|")
+        assertEquals(ReaderTapZoneMap.Default, ReaderTapZoneMap.decode(legacy))
+        listOf("NaN,0.7", "0.8,0.2", "0.3", "0.01,0.7").forEach { stops ->
+            assertEquals(ReaderTapZoneMap.Default, ReaderTapZoneMap.decode("custom|3|3|0:Menu||$stops|"))
+        }
     }
 
     @Test fun pageTurningOptionsResolveAndClampSpeed() {

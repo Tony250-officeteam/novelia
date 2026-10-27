@@ -49,10 +49,16 @@ import kotlin.math.roundToInt
     state: ReaderPreferencesState = rememberReaderPreferencesState(), modifier: Modifier = Modifier,
     headerActions: @Composable RowScope.() -> Unit = {}, livePreview: Boolean = false,
     defaultSettings: ReaderSettings? = null,
+    onEditTapZones: (() -> Unit)? = null, onShowTapTutorial: (() -> Unit)? = null,
     onChange: (ReaderSettings) -> Unit) {
     val reducedMotion = appReducedMotion()
     val defaults = defaultSettings.takeIf { perBook == true }
     var tab by state.tab
+    var previewZones by remember { mutableStateOf(false) }
+    if(previewZones) ReaderTapZonePreview(value, onSave = {
+        onChange(value.copy(tapZoneMap = ReaderTapZoneMap.encode(it)))
+        previewZones = false
+    }, onDismiss = { previewZones = false })
     Column(modifier) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("阅读偏好", Modifier.weight(1f).padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 12.dp), style = MaterialTheme.typography.titleLarge)
@@ -108,21 +114,18 @@ import kotlin.math.roundToInt
                         ChoiceRow("分页模式", listOf("连续滚动", "自动分页"), if(value.staticPagination) 1 else 0, defaultSelected = defaults?.let { if(it.staticPagination) 1 else 0 }) { onChange(value.withPaginationMode(if(it == 1) "auto" else "scroll")) }
                         Text(if(value.staticPagination) "按屏幕大小提前排成独立页面，每次翻动一页。" else "整章连续排列，上下滑动浏览，不提前拆成独立页面。",
                             Modifier.padding(horizontal = 20.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        TogglePreference("点击区域翻页", if(value.tapPageTurn) "按下方分区响应单击；横向与纵向可同时生效，每格都能单独设置" else "开启后可逐格设置点击区域，决定单击各区域翻到上一页还是下一页",
+                        TogglePreference("点击区域翻页", if(value.tapPageTurn) "在正文覆盖层调整区域大小，分别设置单击和双击动作" else "开启后可配置区域大小，以及翻页、目录和工具栏等点击动作",
                             value.tapPageTurn, defaultValue = defaults?.tapPageTurn) { onChange(value.copy(tapPageTurn = it)) }
                         if(value.tapPageTurn) {
-                            // 分区方案移植自 FBReaderJ：横向与纵向同时生效，每格可独立配置。
                             val currentMap = value.resolvedTapZoneMap
-                            ReaderTapZoneEditor(currentMap, onChange = { map ->
-                                onChange(value.copy(tapZoneMap = ReaderTapZoneMap.encode(map)))
-                            })
+                            AppTextButton(onClick = { if(onEditTapZones != null) onEditTapZones() else previewZones = true },
+                                modifier = Modifier.padding(horizontal = 12.dp).testTag("tap-zone-open-editor")) {
+                                Text(if(onEditTapZones != null) "在正文上配置点击区域" else "在示例正文上配置点击区域")
+                            }
                             Text(currentMap.describe(), Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.End) {
-                                val resetMap = ReaderTapZoneMap.encode(ReaderTapZoneMap.Default)
-                                AppTextButton(onClick = { onChange(value.copy(tapZoneMap = resetMap)) },
-                                    modifier = Modifier.testTag("tap-zone-reset")) { Text("恢复默认分区") }
-                            }
+                            if(onShowTapTutorial != null) AppTextButton(onClick = onShowTapTutorial,
+                                modifier = Modifier.padding(horizontal = 12.dp)) { Text("查看点击分区教程") }
                         }
                         if(value.staticPagination) {
                             TogglePreference("滚动翻页", "向上滑动下一页，向下滑动上一页", value.scrollPageTurn, defaultValue = defaults?.scrollPageTurn) { onChange(value.copy(scrollPageTurn = it)) }
