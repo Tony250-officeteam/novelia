@@ -3,6 +3,10 @@ package cc.novelia.app.ui.reader
 
 import cc.novelia.app.ui.components.base.AppTextButton
 import android.animation.ValueAnimator
+import android.graphics.Bitmap
+import android.graphics.LinearGradient
+import android.graphics.Paint
+import android.graphics.Shader
 import android.graphics.Typeface
 import android.text.Layout
 import android.text.SpannableStringBuilder
@@ -13,12 +17,11 @@ import android.text.style.AbsoluteSizeSpan
 import android.text.style.CharacterStyle
 import android.text.style.UnderlineSpan
 import android.text.style.UpdateAppearance
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -27,20 +30,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.text
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import cc.novelia.app.data.model.Page
 import cc.novelia.app.data.model.Position
 import cc.novelia.app.data.model.ReaderSettings
 import cc.novelia.app.reader.*
@@ -53,14 +54,15 @@ import coil.request.ImageRequest
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
-import androidx.compose.ui.unit.Density
-import kotlinx.coroutines.launch
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.semantics.text
+import kotlinx.coroutines.launch
 
 /**
  * 静态分页的位置状态，适用于普通屏幕和电子纸。页码是测量结果，持久定位使用段落及字符锚点。
@@ -113,6 +115,16 @@ import androidx.compose.runtime.mutableFloatStateOf
             sourceParagraph = content.getOrNull(anchorParagraph)?.index
         }
     }
+    /** 纵向连续滚动落定时静默对齐页码：只移动索引与锚点，不动纸带像素游标。 */
+    fun seek(newIndex: Int) {
+        if (!ready || pages.isEmpty()) return
+        val target = newIndex.coerceIn(0, pages.lastIndex)
+        if (target == pageIndex) return
+        pageIndex = target
+        anchorParagraph = paragraph
+        anchorOffset = textOffset
+        sourceParagraph = content.getOrNull(anchorParagraph)?.index
+    }
     fun find(paragraph: Int, offset: Int = 0, source: Int? = null) {
         anchorParagraph = paragraph
         anchorOffset = offset.coerceAtLeast(0)
@@ -121,7 +133,9 @@ import androidx.compose.runtime.mutableFloatStateOf
     }
 }
 
-internal data class MeasuredEInkChapter(val paragraphs: List<ReadingParagraph>, val layouts: Map<Int, StaticLayout>, val pages: List<StaticPage>)
+internal data class MeasuredEInkChapter(val paragraphs: List<ReadingParagraph>, val layouts: Map<Int, StaticLayout>, val pages: List<StaticPage>,
+    /** 整章行序列：一条连续纸带，纵向滚动与翻页快照都从它烘焙。 */
+    val allLines: List<PageLine> = emptyList())
 private data class EInkMeasureInput(val paragraphs: List<ReadingParagraph>, val typography: List<Any>, val width: Int, val height: Int, val density: Float, val fontScale: Float)
 private data class EInkMeasurement(val input: EInkMeasureInput, val chapter: MeasuredEInkChapter)
 
@@ -177,13 +191,84 @@ internal fun measureEInkChapter(paragraphs: List<ReadingParagraph>, settings: Re
     }
     val pairedParagraphs = paragraphs.indices.filterTo(mutableSetOf()) { paragraphs[it].parts.size > 1 }
     return MeasuredEInkChapter(paragraphs, layouts,
-        paginateLines(lines, height, (settings.resolvedParagraphSpacing * density).roundToInt(), pairedParagraphs, checkCancelled))
+        paginateLines(lines, height, (settings.resolvedParagraphSpacing * density).roundToInt(), pairedParagraphs, checkCancelled),
+        allLines = lines.toList())
+}
+
+/** 行纸带的累计几何：行顶（含前置段距）与行底，均相对整章 0 点。 */
+private class LineMetrics(lines: List<PageLine>, spacingPx: Float) {
+    private val cum = FloatArray(lines.size + 1)
+    val total: Float
+    init {
+        var t = 0f
+        for (i in lines.indices) {
+            if (i > 0 && lines[i].paragraph != lines[i - 1].paragraph) t += spacingPx
+            cum[i] = t
+            t += lines[i].height
+        }
+        cum[lines.size] = t
+        total = t
+    }
+    fun yTop(i: Int) = cum[i.coerceIn(0, cum.size - 1)]
+    /** 二分：行顶恰好 <= y 的最大行。 */
+    fun rowAt(y: Float): Int {
+        if (cum.size <= 1) return 0
+        var lo = 0; var hi = cum.size - 2; var ans = 0
+        while (lo <= hi) {
+            val mid = (lo + hi) / 2
+            if (cum[mid] <= y) { ans = mid; lo = mid + 1 } else hi = mid - 1
+        }
+        return ans
+    }
 }
 
 /**
- * 绘制预先测量的完整行，翻页复用布局，手势在释放时最多提交一次翻页。
- * 字体、内容或视口变化才重新测量；电子纸与减少动效模式直接切页，普通模式可使用短过渡。
- * Canvas 只裁切当前页片段，同时提供可访问性文本、搜索高亮与段落长按入口。
+ * 整章行纸带绘制：实时渲染与翻页位图共用同一段代码，
+ * 保证「位图动画终点的像素」与「提交后纸带的像素」逐像素一致——
+ * 这是翻页提交不闪的根据（FBReader 位图模型的无缝条件）。
+ * 插图行在位图烘焙里画占位底色，实时渲染由 Compose 叠加真实插图。
+ */
+private fun drawStrip(canvas: android.graphics.Canvas, top: Float, fromRow: Int, toRow: Int,
+    chapter: MeasuredEInkChapter, metrics: LineMetrics, settings: ReaderSettings,
+    foregroundArgb: Int, activeMatch: ReadingTextMatch?, heightPx: Int) {
+    val lines = chapter.allLines
+    for (i in fromRow until toRow) {
+        val line = lines[i]
+        val y = metrics.yTop(i) - top
+        if (line.image) {
+            val box = Paint().apply { color = android.graphics.Color.argb(40, 127, 127, 127) }
+            canvas.drawRect(0f, y, canvas.width.toFloat(), (y + line.height).coerceAtMost(heightPx.toFloat()), box)
+        } else {
+            val layout = chapter.layouts[line.paragraph] ?: continue
+            val drawScale = (heightPx.toFloat() / line.height).coerceAtMost(1f)
+            val lt = layout.getLineTop(layout.getLineForOffset(line.start))
+            val save = canvas.save()
+            canvas.scale(drawScale, drawScale)
+            canvas.translate(0f, y / drawScale - lt)
+            activeMatch?.takeIf { it.paragraph == line.paragraph && it.end > it.start }?.let { match ->
+                val s = match.textOffset(chapter.paragraphs[line.paragraph], settings).coerceIn(0, layout.text.length)
+                val e = (s + match.end - match.start).coerceIn(s, layout.text.length)
+                val path = android.graphics.Path()
+                layout.getSelectionPath(s, e, path)
+                canvas.drawPath(path, Paint().apply { color = (foregroundArgb and 0x00FFFFFF) or (51 shl 24) })
+            }
+            layout.paint.color = foregroundArgb
+            layout.draw(canvas)
+            canvas.restoreToCount(save)
+        }
+    }
+}
+
+/** 横向翻页快照（FBReader AnimationProvider 模型）：两张整屏位图，动画只搬运像素。 */
+private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap)
+
+/**
+ * 阅读器分页正文。模型：整章 = 一条连续行纸带 + 一个像素游标 viewportTop。
+ * - 纵向：纸带连续滚动，滑多少走多少、可停在任意像素；落定按视口位置对齐页码，
+ *   翻页后继续滚就地在下一页上推进——不存在整页跳、不存在空白黑底、不存在字被切一半，
+ *   因为纸上永远铺满真实连续文字（FBReader 行重叠语义的推广）。
+ * - 横向与点击：位图快照翻页。目标页钉死原位压暗，当前页跟手指掀开（slide 语义），
+ *   走满终点像素与提交后纸带 100% 重合，提交在同一快照写入里完成，无空帧无闪烁。
  */
 @Composable internal fun EInkPage(
     paragraphs: List<ReadingParagraph>, settings: ReaderSettings, state: EInkPageState,
@@ -198,93 +283,33 @@ internal fun measureEInkChapter(paragraphs: List<ReadingParagraph>, settings: Re
     val font = rememberReaderFont(settings)
     var expandedImage by remember { mutableStateOf<Any?>(null) }
     val animate = !settings.eInkMode && !LocalEInkMode.current && !LocalReducedMotion.current && ValueAnimator.areAnimatorsEnabled()
-    var pageOffset by remember { mutableFloatStateOf(0f) }
-    var dragAxis by remember { mutableIntStateOf(0) }
-    var viewport by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
-    var transitionJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    val dragScope = rememberCoroutineScope()
+    val densityValue = density.density
     val latestPage by rememberUpdatedState(onPage)
-    val canInteract = interactionEnabled && expandedImage == null
-    // 页码、排版或交互状态改变后，不允许旧动画继续提交到新页面。
-    LaunchedEffect(state.pages, state.pageIndex, animate, canInteract) {
-        transitionJob?.cancel()
-        pageOffset = 0f
-    }
-    val settle: (Int) -> Unit = { direction ->
-        transitionJob?.cancel()
-        val hasNeighbor = state.pages.getOrNull(state.pageIndex + direction) != null
-        if (!animate || (direction != 0 && !hasNeighbor)) {
-            pageOffset = 0f
-            if (direction != 0) latestPage(direction)
-        } else {
-            val start = pageOffset
-            val target = if(direction == 0) 0f else if(direction > 0) -1f else 1f
-            transitionJob = dragScope.launch {
-                androidx.compose.animation.core.animate(start, target,
-                    animationSpec = tween(if(direction == 0) AppMotion.Quick else AppMotion.Standard,
-                        easing = FastOutSlowInEasing)) { value, _ -> pageOffset = value }
-                if(direction != 0) latestPage(direction)
-                pageOffset = 0f
-            }
-        }
-    }
-    val latestSettle by rememberUpdatedState(settle)
-    val tapNavigation = rememberReaderTapNavigation(settings.tapPageTurn, canInteract, onToggleMenu, { direction ->
-        if(transitionJob?.isActive != true) {
-            dragAxis = 0
-            pageOffset = 0f
-            settle(direction)
-        }
-    }, settings.resolvedTapZoneMap, onNavigate)
+    val scope = rememberCoroutineScope()
+
+    // 纸带像素游标（章内绝对位置，0 = 章首行顶）。
+    var viewportTop by remember { mutableFloatStateOf(0f) }
+    // 翻页快照：非空即处于拖动/动画中（屏幕画位图）；turnShift 为当前位移。
+    var turn by remember { mutableStateOf<PageTurn?>(null) }
+    var turnShift by remember { mutableFloatStateOf(0f) }
+    var turnJob by remember { mutableStateOf<Job?>(null) }
+    // 点击翻页请求（方向+时间戳）：需要视口尺寸与快照，交给内层 LaunchedEffect。
+    var tapTurn by remember { mutableStateOf<Pair<Int, Long>?>(null) }
+
+    val tapNavigation = rememberReaderTapNavigation(
+        settings.tapPageTurn,
+        interactionEnabled && expandedImage == null,
+        onToggleMenu,
+        { dir -> if (animate && dir != 0) tapTurn = dir to System.nanoTime() else latestPage(dir) },
+        settings.resolvedTapZoneMap,
+        onNavigate
+    )
+
     BoxWithConstraints(
         modifier.background(background).clipToBounds()
             .readerTapFeedback(tapNavigation, foreground, settings.eInkMode || LocalEInkMode.current)
             .readerTapNavigation(tapNavigation)
-            .pointerInput(settings.scrollPageTurn, settings.horizontalPageTurn, animate, canInteract) {
-                if(!canInteract || (!settings.scrollPageTurn && !settings.horizontalPageTurn)) return@pointerInput
-                var total = androidx.compose.ui.geometry.Offset.Zero
-                var axisLocked = false
-                val velocity = androidx.compose.ui.input.pointer.util.VelocityTracker()
-                detectDragGestures(
-                    onDragStart = {
-                        transitionJob?.cancel()
-                        total = androidx.compose.ui.geometry.Offset.Zero
-                        axisLocked = false
-                        velocity.resetTracking()
-                    },
-                    onDragCancel = { latestSettle(0) },
-                    onDragEnd = {
-                        val enabled = if(dragAxis == 0) settings.horizontalPageTurn else settings.scrollPageTurn
-                        val distance = if(dragAxis == 0) total.x else total.y
-                        val speed = velocity.calculateVelocity().let { if(dragAxis == 0) it.x else it.y }
-                        val fling = abs(speed) >= 750.dp.toPx() && abs(distance) >= viewConfiguration.touchSlop && speed * distance > 0f
-                        val passed = abs(distance) >= 40.dp.toPx() || fling
-                        val direction = if((if(fling) speed else distance) < 0) 1 else -1
-                        latestSettle(if(enabled && tapNavigation.canSwipe && passed) direction else 0)
-                    }
-                ) { change, amount ->
-                    if(!tapNavigation.canSwipe) return@detectDragGestures
-                    change.consume()
-                    if(!axisLocked) {
-                        val axis = if(abs(amount.x) >= abs(amount.y)) 0 else 1
-                        if(dragAxis != axis) pageOffset = 0f
-                        dragAxis = axis
-                        axisLocked = true
-                    }
-                    total += amount
-                    velocity.addPosition(change.uptimeMillis, change.position)
-                    val enabled = if(dragAxis == 0) settings.horizontalPageTurn else settings.scrollPageTurn
-                    if(animate && enabled) {
-                        val extent = (if(dragAxis == 0) viewport.width else viewport.height).toFloat()
-                        val delta = if(dragAxis == 0) amount.x else amount.y
-                        if(extent > 0) {
-                            val direction = if(pageOffset + delta / extent < 0) 1 else -1
-                            val resistance = if(state.pages.getOrNull(state.pageIndex + direction) == null) .15f else 1f
-                            pageOffset = (pageOffset + delta * resistance / extent).coerceIn(-1f, 1f)
-                        }
-                    }
-                }
-            }.padding(contentPadding).clipToBounds()
+            .padding(contentPadding).clipToBounds()
     ) {
         val width = constraints.maxWidth.coerceAtLeast(1)
         val height = constraints.maxHeight.coerceAtLeast(1)
@@ -305,110 +330,312 @@ internal fun measureEInkChapter(paragraphs: List<ReadingParagraph>, settings: Re
         SideEffect { if(chapter == null) state.invalidate() }
         if (chapter == null) Text("正在分页…", Modifier.align(Alignment.Center), color = foreground)
         else {
+            val viewportW = width.toFloat()
+            val viewportH = height.toFloat()
+            val spacingPx = with(density) { settings.resolvedParagraphSpacing.dp.toPx() }
+            val lines = chapter.allLines
+            val metrics = remember(chapter, spacingPx) { LineMetrics(lines, spacingPx) }
+            val maxTop = (metrics.total - viewportH).coerceAtLeast(0f)
+            // 每页首行在纸带上的行索引与行顶（单调递增，页序=行序）。
+            val pageStartRow = remember(chapter, lines) {
+                val firstRowOf = HashMap<Pair<Int, Int>, Int>(lines.size * 2)
+                lines.forEachIndexed { i, l -> firstRowOf.putIfAbsent(l.paragraph to l.start, i) }
+                IntArray(chapter.pages.size) { pi ->
+                    chapter.pages[pi].lines.firstOrNull()?.let { firstRowOf[it.paragraph to it.start] } ?: -1
+                }
+            }
+            fun pageStartY(pageIndex: Int): Float? = pageStartRow.getOrNull(pageIndex)?.takeIf { it >= 0 }?.let(metrics::yTop)
+            /** 行号落在哪一页（单调扫描，越界钳位）。 */
+            fun pageAtRow(row: Int): Int {
+                var ans = 0
+                for (i in pageStartRow.indices) {
+                    val r = pageStartRow[i]
+                    if (r in 0..row) ans = i else if (r > row) break
+                }
+                return ans
+            }
             val page = state.current
-            BoxWithConstraints(Modifier.fillMaxSize().clipToBounds().onSizeChanged { viewport = it }) {
-                val extent = (if(dragAxis == 0) constraints.maxWidth else constraints.maxHeight).toFloat()
-                val shift = if(animate) pageOffset * extent else 0f
-                val direction = when { shift < 0 -> 1; shift > 0 -> -1; else -> 0 }
-                @Composable fun body(content: StaticPage?, offset: Float) {
-                    PageBody(content, chapter, settings, foreground, activeMatch, density, context,
-                        tapNavigation, onSelect, imageModel, { expandedImage = it }, constraints.maxHeight,
-                        Modifier.fillMaxSize().graphicsLayer {
-                            translationX = if(dragAxis == 0) offset else 0f
-                            translationY = if(dragAxis == 1) offset else 0f
-                        }.background(background))
+
+            // 外部定位（章节切换、书签跳转、进度拖拽）才重置游标；翻页提交不经过这里。
+            LaunchedEffect(chapter, state.pageIndex) {
+                val t = turn
+                if (t != null) return@LaunchedEffect
+                val top = pageStartY(state.pageIndex) ?: return@LaunchedEffect
+                // 游标已落在本页范围内（纵向滚动的就地提交），不拉回页顶。
+                val row = metrics.rowAt(viewportTop + viewportH * 0.4f)
+                if (pageAtRow(row) != state.pageIndex) { viewportTop = top.coerceAtMost(maxTop) }
+            }
+
+            fun screenRows(top: Float): Pair<Int, Int> {
+                val fromRow = metrics.rowAt(top)
+                var toRow = fromRow
+                while (toRow < lines.size && metrics.yTop(toRow) - top < viewportH) toRow++
+                return fromRow to toRow
+            }
+
+            fun bake(top: Float): Bitmap {
+                val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565)
+                val c = android.graphics.Canvas(bmp)
+                c.drawColor(background.toArgb())
+                val t = top.coerceIn(0f, maxTop)
+                val (fromRow, toRow) = screenRows(t)
+                drawStrip(c, t, fromRow, toRow, chapter, metrics, settings, foreground.toArgb(), activeMatch, height)
+                return bmp
+            }
+
+            /**
+             * 行单位的翻页目标：前进 = 当前屏底行的下一行起新的一屏，
+             * 后退 = 按当前屏行数往前一屏。起点永远是「正在看的屏」而非页表，
+             * 纵向滚到哪、左右翻页就衔接哪，不会按旧页表跳走造成重复或倒退。
+             * 越出章界返回 null（交外层跨章）。
+             */
+            fun goalTopFor(dir: Int): Float? {
+                val top = viewportTop.coerceIn(0f, maxTop)
+                val (fromRow, toRow) = screenRows(top)
+                return if (dir > 0) {
+                    if (toRow >= lines.size) null
+                    else metrics.yTop(toRow).coerceAtMost(maxTop).takeIf { it > top + 0.5f }
+                } else {
+                    if (fromRow == 0) null
+                    else {
+                        val newFrom = (fromRow - (toRow - fromRow)).coerceAtLeast(0)
+                        metrics.yTop(newFrom).takeIf { it < top - 0.5f }
+                    }
                 }
-                if(direction != 0) chapter.pages.getOrNull(state.pageIndex + direction)?.let {
-                    body(it, shift + direction * extent)
+            }
+
+            // 位移动画 from → 终点；commit=true 走满整屏，在同一快照里
+            // 「对齐游标 + 提交页码 + 清快照」，像素无缝；回弹则恢复原位清快照。
+            fun runTurn(dir: Int, from: Float, commit: Boolean, duration: Int) {
+                turnJob?.cancel()
+                turnJob = scope.launch {
+                    val goal = if (commit) (if (dir > 0) -viewportW else viewportW) else 0f
+                    val nanos = duration.coerceAtLeast(60) * 1_000_000L
+                    var t0 = 0L
+                    var done = false
+                    while (!done) {
+                        withFrameNanos { now ->
+                            if (t0 == 0L) t0 = now
+                            val f = ((now - t0).toFloat() / nanos).coerceIn(0f, 1f)
+                            turnShift = from + (goal - from) * FastOutSlowInEasing.transform(f)
+                            if (f >= 1f) done = true
+                        }
+                    }
+                    turn = null
+                    turnShift = 0f
+                    if (commit) {
+                        val g = goalTopFor(dir)
+                        if (g != null) {
+                            viewportTop = g
+                            // 页码按行位置对齐（翻页以行为单位，索引只是标签）
+                            state.seek(pageAtRow(metrics.rowAt(g + 1f)))
+                        }
+                        else latestPage(dir)   // 章界：外层换章后由定位 effect 重置视图
+                    }
                 }
-                body(page, shift)
+            }
+
+            // 点击：与滑动完全同一条位图路径（FBReader 语义）。
+            LaunchedEffect(tapTurn) {
+                val req = tapTurn ?: return@LaunchedEffect
+                tapTurn = null
+                if (turn != null || turnJob?.isActive == true) return@LaunchedEffect
+                val g = goalTopFor(req.first)
+                if (g == null) { latestPage(req.first); return@LaunchedEffect }
+                if (!animate) { viewportTop = g; state.move(req.first); return@LaunchedEffect }
+                turn = PageTurn(req.first, bake(viewportTop), bake(g))
+                runTurn(req.first, 0f, true, AppMotion.Standard)
+            }
+
+            // ====== 手势层 ======
+            Box(
+                Modifier.fillMaxSize()
+                    .pointerInput(animate, chapter, settings.horizontalPageTurn, settings.scrollPageTurn) {
+                        var axis = 0
+                        var locked = false
+                        var startX = 0f
+                        var startY = 0f
+                        var totalX = 0f
+                        var totalY = 0f
+                        var lastTime = 0L
+                        var velX = 0f
+                        var velY = 0f
+                        detectDragGestures(
+                            onDragStart = { p ->
+                                startX = p.x; startY = p.y
+                                totalX = 0f; totalY = 0f; axis = 0; locked = false
+                                lastTime = 0L; velX = 0f; velY = 0f
+                                turnJob?.cancel()   // 动画中途按下：冻结现位移继续拖
+                            },
+                            onDragCancel = {
+                                val t = turn
+                                if (t != null && t.dir != 0) runTurn(t.dir, turnShift, false, AppMotion.Quick)
+                            },
+                            onDragEnd = {
+                                val t = turn
+                                if (axis == 0) {
+                                    if (t != null) {
+                                        val passed = abs(totalX) >= 40f * densityValue || abs(velX) >= 0.2f
+                                        val commit = passed && (if (totalX < 0f) t.dir > 0 else t.dir < 0)
+                                        val moved = abs(turnShift) / viewportW
+                                        runTurn(t.dir, turnShift, commit,
+                                            if (commit) (AppMotion.Standard * (1f - moved)).toInt().coerceIn(80, AppMotion.Standard) else AppMotion.Quick)
+                                    } else if (abs(totalX) >= 40f * densityValue || abs(velX) >= 0.2f) {
+                                        latestPage(if (totalX < 0f) 1 else -1)   // 章界滑动：跨章
+                                    }
+                                } else if (axis == 1 && locked && settings.scrollPageTurn) {
+                                    // 纵向：惯性继续推进（纸带钳到章界），随后对齐页码
+                                    val v = velY
+                                    turnJob?.cancel()
+                                    turnJob = scope.launch {
+                                        if (animate && abs(v) >= 0.15f) {
+                                            var vel = -v * 16.67f                 // px/ms → px/帧
+                                            var pos = viewportTop
+                                            var last = 0L
+                                            while (abs(vel) > 1.2f) {
+                                                withFrameNanos { now ->
+                                                    if (last != 0L) {
+                                                        pos = (pos + vel).coerceIn(0f, maxTop)
+                                                        vel *= 0.94f
+                                                    }
+                                                    last = now
+                                                    viewportTop = pos
+                                                }
+                                            }
+                                        }
+                                        // 吸附到最近行边界：滑动单位是行，不是任意像素
+                                        val r = metrics.rowAt(viewportTop)
+                                        val y0 = metrics.yTop(r)
+                                        val y1 = metrics.yTop(r + 1)
+                                        val pos = (if (viewportTop - y0 <= (y1 - y0) / 2f) y0 else y1).coerceIn(0f, maxTop)
+                                        viewportTop = pos
+                                        state.seek(pageAtRow(metrics.rowAt(pos + viewportH * 0.4f)))
+                                    }
+                                }
+                            }
+                        ) { change, amount ->
+                            change.consume()
+                            if (!animate) return@detectDragGestures
+                            if (!locked) {
+                                val dx = change.position.x - startX
+                                val dy = change.position.y - startY
+                                if (dx * dx + dy * dy < 144f) return@detectDragGestures
+                                axis = if (abs(dx) >= abs(dy)) 0 else 1
+                                val enabled = if (axis == 0) settings.horizontalPageTurn else settings.scrollPageTurn
+                                if (!enabled) return@detectDragGestures
+                                locked = true
+                            }
+                            if (axis == 0) {
+                                totalX += amount.x
+                                val dir = if (totalX < 0f) 1 else -1
+                                val t = turn
+                                if (t == null || t.dir != dir) {
+                                    val g = goalTopFor(dir)
+                                    if (g != null) { turn = PageTurn(dir, bake(viewportTop), bake(g)); turnShift = totalX }
+                                    else if (t != null) { turn = null; turnShift = 0f }
+                                } else {
+                                    turnShift = totalX
+                                    // 回越过界：释放快照回到无动画状态
+                                    val g = goalTopFor(dir)
+                                    if (g == null) { turn = null; turnShift = 0f }
+                                }
+                            } else {
+                                totalY += amount.y
+                                viewportTop = (viewportTop - amount.y).coerceIn(0f, maxTop)
+                            }
+                            val now = change.uptimeMillis
+                            if (lastTime != 0L && now > lastTime) {
+                                val dt = (now - lastTime).toFloat()
+                                velX = velX * 0.5f + amount.x / dt * 0.5f
+                                velY = velY * 0.5f + amount.y / dt * 0.5f
+                            }
+                            lastTime = now
+                        }
+                    }
+                    .pointerInput(chapter) {
+                        detectTapGestures(onLongPress = { pos ->
+                            val row = metrics.rowAt((viewportTop + pos.y).coerceAtMost(maxTop))
+                            lines.getOrNull(row)?.let { onSelect(chapter.paragraphs[it.paragraph]) }
+                        })
+                    }
+            ) {
+                val t = turn
+                if (t != null) {
+                    // 动画帧：两张贴位图 + 覆盖页压暗 + 接缝 16dp 渐变阴影。
+                    // 结构逐行对应 SlideAnimationProvider.drawInternal；无任何重组。
+                    Canvas(Modifier.fillMaxSize().background(background)) {
+                        drawIntoCanvas { dc ->
+                            val nc = dc.nativeCanvas
+                            val progress = (abs(turnShift) / viewportW).coerceIn(0f, 1f)
+                            nc.drawBitmap(t.to, 0f, 0f, null)
+                            val dim = (0.44f * (1f - progress) * 255f).toInt().coerceIn(0, 255)
+                            if (dim > 0) nc.drawColor(android.graphics.Color.argb(dim, 0, 0, 0))
+                            val save = nc.save()
+                            nc.translate(turnShift, 0f)
+                            nc.drawBitmap(t.from, 0f, 0f, null)
+                            nc.restoreToCount(save)
+                            val shadow = 16f * densityValue
+                            val paint = Paint()
+                            if (turnShift < 0f) {
+                                val seam = viewportW + turnShift
+                                paint.shader = LinearGradient(seam, 0f, seam + shadow, 0f, 0x46000000.toInt(), 0, Shader.TileMode.CLAMP)
+                                nc.drawRect(seam, 0f, seam + shadow, viewportH, paint)
+                            } else if (turnShift > 0f) {
+                                paint.shader = LinearGradient(turnShift - shadow, 0f, turnShift, 0f, 0, 0x46000000.toInt(), Shader.TileMode.CLAMP)
+                                nc.drawRect(turnShift - shadow, 0f, turnShift, viewportH, paint)
+                            }
+                            paint.shader = null
+                        }
+                    }
+                } else {
+                    // 静态/滚动：纸带连续渲染，视口内行逐行绘制，上下永远铺满真实文字。
+                    val fromRow = metrics.rowAt(viewportTop)
+                    var toRow = fromRow
+                    while (toRow < lines.size && metrics.yTop(toRow) - viewportTop < viewportH) toRow++
+                    Canvas(Modifier.fillMaxSize()
+                        .semantics {
+                            text = AnnotatedString(page?.let { p ->
+                                val layout = chapter.layouts[p.lines.firstOrNull()?.paragraph ?: 0]
+                                val first = p.lines.firstOrNull()
+                                if (layout != null && first != null)
+                                    layout.text.subSequence(first.start, first.end).toString() else ""
+                            } ?: "")
+                        }) {
+                        drawIntoCanvas { dc ->
+                            val nc = dc.nativeCanvas
+                            nc.drawColor(background.toArgb())
+                            drawStrip(nc, viewportTop, fromRow, toRow, chapter, metrics, settings, foreground.toArgb(), activeMatch, height)
+                        }
+                    }
+                    // 视口内插图：真实 Coil 图叠加在纸带行位上（烘焙位图只有占位色）。
+                    val expandImage: (Any?) -> Unit = { expandedImage = it }
+                    for (i in fromRow until toRow) {
+                        val line = lines[i]
+                        if (!line.image) continue
+                        val paragraph = chapter.paragraphs[line.paragraph]
+                        val model = imageModel(paragraph)
+                        var retry by remember(model) { mutableIntStateOf(0) }
+                        val y = (metrics.yTop(i) - viewportTop).roundToInt()
+                        Box(Modifier.offset { IntOffset(0, y) }.size(width.dp, (line.height / densityValue).dp)
+                            .clipToBounds()
+                            .combinedClickable(onClick = tapNavigation::click,
+                                onLongClickLabel = "放大查看插图", onLongClick = { expandImage(model) }),
+                            contentAlignment = Alignment.Center) {
+                            val request = remember(context, model, retry) {
+                                ImageRequest.Builder(context).data(model).setParameter("readerRetry", retry).crossfade(false).build()
+                            }
+                            var failed by remember(model) { mutableStateOf(false) }
+                            AsyncImage(request, "小说插图", Modifier.fillMaxSize(), contentScale = ContentScale.Fit,
+                                onLoading = { failed = false }, onSuccess = { failed = false }, onError = { failed = true })
+                            if (failed) Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("插图暂时无法加载", color = foreground)
+                                AppTextButton(onClick = { retry++ }) { Text("重新加载插图", color = foreground) }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
     expandedImage?.let { model -> IllustrationViewer(model) { expandedImage = null } }
-}
-
-/**
- * 单页正文渲染，供跟手翻页同时绘制当前页与相邻页。
- *
- * 从 [EInkPage] 抽出：拖动时两页共存，必须把渲染逻辑做成可复用组件，
- * 各自持有独立的图片重试等局部状态。
- */
-@Composable
-private fun PageBody(
-    page: StaticPage?,
-    chapter: MeasuredEInkChapter,
-    settings: ReaderSettings,
-    foreground: Color,
-    activeMatch: ReadingTextMatch?,
-    density: Density,
-    context: android.content.Context,
-    tapNavigation: ReaderTapNavigation,
-    onSelect: (ReadingParagraph) -> Unit,
-    imageModel: (ReadingParagraph) -> Any?,
-    onExpandImage: (Any?) -> Unit,
-    viewportHeight: Int,
-    modifier: Modifier = Modifier,
-) {
-
-    // 正文仅显示 readerTapFeedback 的分区提示，避免默认涟漪按容器大小给整页染色。
-    Column(modifier.combinedClickable(
-        interactionSource = remember { MutableInteractionSource() }, indication = null,
-        onClickLabel = "显示或收起阅读工具栏", onClick = tapNavigation::click)) {
-        page?.lines?.groupBy { it.paragraph }?.entries?.forEachIndexed { groupIndex, (index, lines) ->
-            if (groupIndex > 0) Spacer(Modifier.height(settings.resolvedParagraphSpacing.dp))
-            val paragraph = chapter.paragraphs[index]
-            if (lines.first().image) {
-                val model = imageModel(paragraph)
-                var retry by remember(model) { mutableIntStateOf(0) }
-                val request = remember(context, model, retry) {
-                    ImageRequest.Builder(context).data(model).setParameter("readerRetry", retry).crossfade(false).build()
-                }
-                var failed by remember(model) { mutableStateOf(false) }
-                Box(Modifier.fillMaxSize().combinedClickable(
-                    interactionSource = remember { MutableInteractionSource() }, indication = null,
-                    onClick = tapNavigation::click,
-                    onLongClickLabel = "放大查看插图", onLongClick = { onExpandImage(model) }), contentAlignment = Alignment.Center) {
-                    AsyncImage(request, "小说插图", Modifier.fillMaxSize(), contentScale = ContentScale.Fit,
-                        onLoading = { failed = false }, onSuccess = { failed = false }, onError = { failed = true })
-                    if(failed) Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("插图暂时无法加载", color = foreground)
-                        AppTextButton(onClick = { retry++ }) { Text("重新加载插图", color = foreground) }
-                    }
-                }
-            } else {
-                val layout = chapter.layouts.getValue(index)
-                val top = layout.getLineTop(layout.getLineForOffset(lines.first().start))
-                val sliceHeight = lines.sumOf { it.height }
-                // 超大系统字号可能使一行文字高于整个横屏视口；
-                // 此时缩放适配该行，避免裁切字形。
-                val drawScale = (viewportHeight.toFloat() / sliceHeight).coerceAtMost(1f)
-                val visibleText = layout.text.subSequence(lines.first().start, lines.last().end).toString()
-                Canvas(Modifier.fillMaxWidth().height(with(density) { (sliceHeight * drawScale).toDp() }).clipToBounds()
-                    .semantics { text = AnnotatedString(visibleText) }
-                    .combinedClickable(
-                        interactionSource = remember { MutableInteractionSource() }, indication = null,
-                        onClickLabel = "显示或收起阅读工具栏", onClick = tapNavigation::click,
-                        onLongClickLabel = "选择段落、分享或添加笔记", onLongClick = { onSelect(paragraph) })) {
-                    drawIntoCanvas { canvas ->
-                        val native = canvas.nativeCanvas
-                        native.save()
-                        native.scale(drawScale, drawScale)
-                        native.translate(0f, -top.toFloat())
-                        activeMatch?.takeIf { it.paragraph == index && it.end > it.start }?.let { match ->
-                            val start = match.textOffset(paragraph, settings).coerceIn(0, layout.text.length)
-                            val end = (start + match.end - match.start).coerceIn(start, layout.text.length)
-                            val path = android.graphics.Path()
-                            layout.getSelectionPath(start, end, path)
-                            native.drawPath(path, android.graphics.Paint().apply { color = foreground.copy(alpha = .2f).toArgb() })
-                        }
-                        layout.paint.color = foreground.toArgb()
-                        layout.draw(native)
-                        native.restore()
-                    }
-                }
-            }
-        }
-        if (page?.lines.isNullOrEmpty()) Text("本章暂无正文", color = foreground)
-    }
 }
