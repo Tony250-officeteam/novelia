@@ -469,8 +469,9 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap, val goalT
              * 越出章界返回 null（交外层跨章）。
              */
             fun goalRowFor(dir: Int): Int? {
-                val top = viewportTop.coerceIn(0f, maxTop)
-                val (fromRow, toRow) = screenRows(metrics.rowAt(top))
+                // 容差 +0.5px：viewportTop 是浮点累积行顶，直接 rowAt 可能因误差
+                // 退到上一行，导致每次翻页错一行、反复翻叠成「顶部行漂移」。
+                val (fromRow, toRow) = screenRows(metrics.rowAt(viewportTop + 0.5f))
                 return if (dir > 0) {
                     if (toRow >= lines.size) null else toRow
                 } else {
@@ -481,7 +482,9 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap, val goalT
             /** 目标行的纸带游标（绝对像素），供 bake / 动画使用。 */
             fun goalTopFor(dir: Int): Float? {
                 val row = goalRowFor(dir) ?: return null
-                val top = metrics.yTop(row).coerceIn(0f, maxTop)
+                // 不能 coerce 到 maxTop：那会把行边界截断成非行边界，
+                // 后续 rowAt 再也对不齐，同样造成漂移。允许末行顶部越界。
+                val top = metrics.yTop(row).coerceAtLeast(0f)
                 return top.takeIf { abs(it - viewportTop) > 0.5f }
             }
 
@@ -625,7 +628,7 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap, val goalT
                                         // 落定：吸附行边界、就地页对齐，并把锚点交给外层持久化。
                                         // 只传 0（保存当前位），绝不能再传 ±1——外层 page(dir)
                                         // 会按页表 move，把刚滚出的行位置拉回页顶（翻页效果丢失）。
-                                        val r = metrics.rowAt(viewportTop)
+                                        val r = metrics.rowAt(viewportTop + 0.5f)
                                         val y0 = metrics.yTop(r)
                                         val y1 = metrics.yTop(r + 1)
                                         val pos = (if (viewportTop - y0 <= (y1 - y0) / 2f) y0 else y1).coerceIn(0f, maxTop)
@@ -714,7 +717,7 @@ private class PageTurn(val dir: Int, val from: Bitmap, val to: Bitmap, val goalT
                     }
             ) {
                 val t = turn
-                val (fromRow, toRow) = screenRows(metrics.rowAt(viewportTop))
+                val (fromRow, toRow) = screenRows(metrics.rowAt(viewportTop + 0.5f))
                 val showFrozen = t == null && frozen != null && abs(viewportTop - frozenTop) < 0.5f
                 // 动画 / 冻结 / 实时三种绘制必须在同一个 Canvas 节点里分支。
                 // 若拆成两个 Canvas（if turn != null 一个、else 一个），`turn` 由非空变空时
